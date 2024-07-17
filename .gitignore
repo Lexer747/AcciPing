@@ -1,0 +1,17 @@
+*.dylib
+*.exe
+*.out
+*.prof
+*.so
+*.swp
+*.tar.gz
+*.test
+*~
+.DS_Store
+
+# VSCode --
+## Dont track user settings but allow project wide settings
+.vscode
+!.vscode/settings.json
+## Ignore go debug builds
+__debug_bin**
