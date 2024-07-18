@@ -7,7 +7,7 @@
 package errors
 
 import (
-	stderrors "errors"
+	stderrors "errors" //nolint:depguard
 	"fmt"
 )
 

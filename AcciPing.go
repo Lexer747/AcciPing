@@ -7,6 +7,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/Lexer747/AcciPing/ping"
@@ -14,6 +15,14 @@ import (
 
 func main() {
 	p := ping.NewPing()
-	duration, err := p.OneShot("www.google.com")
-	fmt.Printf("Duration: %s | Err: '%+v'\n", duration, err)
+	ctx, cancelFunc := context.WithCancel(context.Background())
+	channel, err := p.CreateChannel(ctx, "www.google.com", 30)
+	if err != nil {
+		panic(err)
+	}
+	for range 4 {
+		result := <-channel
+		fmt.Printf("Duration: %s | Timestamp %s | Err: '%+v'\n", result.Duration, result.Timestamp.String(), result.Error)
+	}
+	cancelFunc()
 }
