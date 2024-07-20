@@ -22,6 +22,9 @@ func Errorf(format string, args ...interface{}) error {
 }
 
 func Wrap(err error, wrapping string) error {
+	if err == nil {
+		return nil
+	}
 	return &wrapErr{cause: err, message: wrapping}
 }
 

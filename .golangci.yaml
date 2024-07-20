@@ -53,9 +53,11 @@ linters:
     - execinquery
     - exhaustruct
     - forbidigo
+    - funlen
     - gci
     - gochecknoglobals
     - gocritic
+    - godot
     - godox
     - gofumpt
     - gomnd

@@ -28,9 +28,9 @@ func TestChannel_google_com(t *testing.T) {
 	t.Parallel()
 	p := ping.NewPing()
 	ctx, cancelFunc := context.WithCancel(context.Background())
-	_, err := p.CreateChannel(ctx, "www.google.com", -1)
+	_, err := p.CreateChannel(ctx, "www.google.com", -1, 0)
 	require.Error(t, err, "invalid pings per minute")
-	channel, err := p.CreateChannel(ctx, "www.google.com", 0)
+	channel, err := p.CreateChannel(ctx, "www.google.com", 0, 0)
 	require.NoError(t, err)
 	for range 10 {
 		result := <-channel

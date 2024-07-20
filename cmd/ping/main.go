@@ -18,7 +18,7 @@ func main() {
 	p := ping.NewPing()
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	const google = "www.google.com"
-	channel, err := p.CreateChannel(ctx, google, 30)
+	channel, err := p.CreateChannel(ctx, google, 30, 0)
 	if err != nil {
 		panic(err)
 	}

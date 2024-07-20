@@ -2,7 +2,10 @@ module github.com/Lexer747/AcciPing
 
 go 1.22.5
 
-require golang.org/x/net v0.27.0
+require (
+	golang.org/x/net v0.27.0
+	golang.org/x/term v0.22.0
+)
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect

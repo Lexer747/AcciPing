@@ -8,21 +8,23 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"time"
 
+	"github.com/Lexer747/AcciPing/graph"
 	"github.com/Lexer747/AcciPing/ping"
 )
 
 func main() {
 	p := ping.NewPing()
-	ctx, cancelFunc := context.WithCancel(context.Background())
-	channel, err := p.CreateChannel(ctx, "www.google.com", 30)
+	ctx, cancelFunc := context.WithTimeout(context.Background(), 1*time.Minute)
+	defer cancelFunc()
+	channel, err := p.CreateChannel(ctx, "www.google.com", 5, 0)
 	if err != nil {
-		panic(err)
+		panic(err.Error())
 	}
-	for range 4 {
-		result := <-channel
-		fmt.Printf("Duration: %s | Timestamp %s | Err: '%+v'\n", result.Duration, result.Timestamp.String(), result.Error)
+	g, err := graph.NewGraph(channel, ctx)
+	if err != nil {
+		panic(err.Error())
 	}
-	cancelFunc()
+	g.Run(ctx, 1)
 }

@@ -13,28 +13,29 @@ import (
 	"os"
 	"time"
 
+	"github.com/Lexer747/AcciPing/utils/bytes"
 	"github.com/Lexer747/AcciPing/utils/errors"
 
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv4"
 )
 
-type ping struct {
+type Ping struct {
 	connect    *icmp.PacketConn
 	id         uint16
 	currentURL string
 	IPString   string
 }
 
-func NewPing() *ping {
-	return &ping{
+func NewPing() *Ping {
+	return &Ping{
 		id: uint16(os.Getpid() + 1234),
 	}
 }
 
-func (p *ping) OneShot(url string) (time.Duration, error) {
+func (p *Ping) OneShot(url string) (time.Duration, error) {
 	// first get the ip for a given url
-	selectedIP, err := p.DNSQuery(url)
+	selectedIP, err := DNSQuery(url)
 	if err != nil {
 		return 0, err
 	}
@@ -76,7 +77,59 @@ func (p *ping) OneShot(url string) (time.Duration, error) {
 	}
 }
 
-func (ping) DNSQuery(url string) (net.IP, error) {
+type PingResults struct {
+	Duration  time.Duration
+	Timestamp time.Time
+	Error     error
+}
+
+func (p *Ping) CreateChannel(ctx context.Context, url string, pingsPerMinute float64, channelSize int) (chan PingResults, error) {
+	if pingsPerMinute < 0 {
+		return nil, errors.Errorf("Invalid pings per minute %f, should be larger than 0", pingsPerMinute)
+	}
+
+	// first get the ip for a given url
+	selectedIP, err := DNSQuery(url)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create a listener for the IP we will use
+	closer, err := p.startListening(selectedIP, url)
+	if err != nil {
+		return nil, err
+	}
+
+	var rateLimit *time.Ticker
+	if pingsPerMinute != 0 { // Zero is the sentinel, go as fast as possible
+		gapBetweenPings := math.Round((60 * 1000) / (pingsPerMinute))
+		rateLimit = time.NewTicker(time.Millisecond * time.Duration(gapBetweenPings))
+	}
+
+	client := make(chan PingResults, channelSize)
+	run := func() {
+		defer close(client)
+		defer closer()
+		var seq uint16
+		buffer := make([]byte, 255)
+		var errorDuringLoop bool
+		for {
+			if seq, errorDuringLoop = p.pingOnChannel(rateLimit, seq, client, selectedIP, buffer); errorDuringLoop {
+				return
+			}
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				// Don't block on the receiving channel we just get new pings as fast as possible!
+			}
+		}
+	}
+	go run()
+	return client, nil
+}
+
+func DNSQuery(url string) (net.IP, error) {
 	ips, err := net.LookupIP(url)
 	if err != nil {
 		return nil, errors.Wrapf(err, "couldn't DNS query %q", url)
@@ -95,63 +148,18 @@ func (ping) DNSQuery(url string) (net.IP, error) {
 	return selectedIP, nil
 }
 
-type PingResults struct {
-	Duration  time.Duration
-	Timestamp time.Time
-	Error     error
+func packetLoss(Timestamp time.Time, Error error) PingResults {
+	return PingResults{Duration: -314, Timestamp: Timestamp, Error: Error}
 }
 
-func (p *ping) CreateChannel(ctx context.Context, url string, pingsPerMinute float64) (chan PingResults, error) {
-	if pingsPerMinute < 0 {
-		return nil, errors.Errorf("Invalid pings per minute %f, should be larger than 0", pingsPerMinute)
-	}
-
-	// first get the ip for a given url
-	selectedIP, err := p.DNSQuery(url)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create a listener for the IP we will use
-	closer, err := p.startListening(selectedIP, url)
-	if err != nil {
-		return nil, err
-	}
-
-	var rateLimit *time.Ticker
-	if pingsPerMinute != 0 { // Zero is the sentinel, go as fast as possible
-		gapBetweenPings := math.Round((60 * 1000) / (pingsPerMinute))
-		rateLimit = time.NewTicker(time.Millisecond * time.Duration(gapBetweenPings))
-	}
-
-	client := make(chan PingResults)
-	run := func() {
-		defer close(client)
-		defer closer()
-		var seq uint16
-		buffer := make([]byte, 255)
-		var errorDuringLoop bool
-		for {
-			if seq, errorDuringLoop = p.pingOnChannel(rateLimit, seq, client, selectedIP, buffer); errorDuringLoop {
-				return
-			}
-			select {
-			case <-ctx.Done():
-				client <- PingResults{Error: ctx.Err()}
-				return
-			default:
-				// Don't block on the receiving channel we just get new pings as fast as possible!
-			}
-		}
-	}
-	go run()
-	return client, nil
+func goodPacket(Duration time.Duration, Timestamp time.Time) PingResults {
+	return PingResults{Duration: Duration, Timestamp: Timestamp, Error: nil}
 }
 
 // pingOnChannel performs a single ping to the already discovered IP, using the buffer as a scratch buffer,
 // and writes ALL results to the channel (including errors). It self limits it's execution if it was called
 // too recently compared to the desired rate.
-func (p *ping) pingOnChannel(
+func (p *Ping) pingOnChannel(
 	rateLimit *time.Ticker,
 	seq uint16,
 	client chan PingResults,
@@ -165,59 +173,41 @@ func (p *ping) pingOnChannel(
 	// Can gain some speed here by not remaking this each time, only to change the sequence number.
 	raw, err := p.makeOutgoingPacket(seq)
 	if err != nil {
-		client <- PingResults{Error: err}
+		client <- packetLoss(time.Now(), err)
 		return seq, true
 	}
 
 	// Actually write the echo request onto the connection:
 	if err = p.writeEcho(selectedIP, raw); err != nil {
-		client <- PingResults{Error: err}
+		client <- PingResults{Timestamp: time.Now(), Error: err}
 		return seq, true
 	}
 	begin := time.Now()
 	n, _, err := p.connect.ReadFrom(buffer) // blocking
 	duration := time.Since(begin)
 	if err != nil {
-		client <- PingResults{
-			Duration: duration,
-			Error:    errors.Wrapf(err, "couldn't read packet from %q", p.currentURL),
-		}
+		client <- packetLoss(time.Now(), errors.Wrapf(err, "couldn't read packet from %q", p.currentURL))
 		return seq, true
 	}
 	received, err := icmp.ParseMessage(protocolICMP, buffer[:n])
 	if err != nil {
-		client <- PingResults{
-			Duration: duration,
-			Error:    errors.Wrapf(err, "couldn't parse raw packet from %q, %+v", p.currentURL, received),
-		}
+		client <- packetLoss(begin, errors.Wrapf(err, "couldn't parse raw packet from %q, %+v", p.currentURL, received))
 		return seq, true
 	}
 	switch received.Type {
 	case ipv4.ICMPTypeEchoReply:
 		// Clear the buffer for next packet
-		clear(buffer, n)
+		bytes.Clear(buffer, n)
 		seq++ // Deliberate wrap-around
-		client <- PingResults{
-			Duration:  duration,
-			Timestamp: begin,
-		}
+		client <- goodPacket(duration, begin)
 		return seq, false
 	default:
-		client <- PingResults{
-			Duration: duration,
-			Error:    errors.Errorf("Didn't receive a good message back from %q, got Code: %d", p.currentURL, received.Code),
-		}
+		client <- packetLoss(begin, errors.Errorf("Didn't receive a good message back from %q, got Code: %d", p.currentURL, received.Code))
 		return seq, true
 	}
 }
 
-func clear(buffer []byte, n int) {
-	for i := range n {
-		buffer[i] = 0
-	}
-}
-
-func (p *ping) makeOutgoingPacket(seq uint16) ([]byte, error) {
+func (p *Ping) makeOutgoingPacket(seq uint16) ([]byte, error) {
 	outGoingPacket := icmp.Message{
 		Type: ipv4.ICMPTypeEcho,
 		Body: &icmp.Echo{
@@ -235,7 +225,7 @@ func (p *ping) makeOutgoingPacket(seq uint16) ([]byte, error) {
 	return raw, nil
 }
 
-func (p *ping) writeEcho(selectedIP net.IP, raw []byte) error {
+func (p *Ping) writeEcho(selectedIP net.IP, raw []byte) error {
 	udpDst := &net.UDPAddr{IP: selectedIP}
 	if _, err := p.connect.WriteTo(raw, udpDst); err != nil {
 		return errors.Wrapf(err, "couldn't write packet to connection %q", p.currentURL)
@@ -243,7 +233,7 @@ func (p *ping) writeEcho(selectedIP net.IP, raw []byte) error {
 	return nil
 }
 
-func (p *ping) startListening(selectedIP net.IP, url string) (closer func(), err error) {
+func (p *Ping) startListening(selectedIP net.IP, url string) (closer func(), err error) {
 	// TODO supporting windows (privileges etc)
 	p.connect, err = icmp.ListenPacket("udp4", listenAddr.String())
 	p.IPString = selectedIP.String()
