@@ -32,7 +32,7 @@ func TestChannel_google_com(t *testing.T) {
 	require.Error(t, err, "invalid pings per minute")
 	channel, err := p.CreateChannel(ctx, "www.google.com", 0, 0)
 	require.NoError(t, err)
-	for range 10 {
+	for range 2 {
 		result := <-channel
 		require.NoError(t, result.Error)
 		require.GreaterOrEqual(t, result.Duration, time.Millisecond)

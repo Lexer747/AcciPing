@@ -7,10 +7,11 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"strings"
 
 	"github.com/Lexer747/AcciPing/graph/terminal"
-	"golang.org/x/net/context"
 )
 
 // A small demo of the terminal API, this program will emit a terminal sized line every time it hears a key,
@@ -22,28 +23,44 @@ func main() {
 		panic(err.Error())
 	}
 	// Now setup the cancelling context to give to the terminal once we start running
-	ctx, cancelFunc := context.WithCancel(context.Background())
+	ctx, cancelFunc := context.WithCancelCause(context.Background())
 
 	// Create out example listener, we trigger on any detected input and always write a full terminal line
 	writeLineListener := terminal.Listener{
 		Name: "blankLine",
-		Applicable: func(rune) bool {
-			return true
+		Applicable: func(r rune) bool {
+			return r != 'l'
 		},
-		Action: func() error {
-			line := strings.Repeat(".", t.Size().Width)
-			t.Write([]byte(line))
-			return nil
+		Action: func(rune) error {
+			sizeDiv2 := (t.Size().Width / 2) - 7
+			line := strings.Repeat(".", sizeDiv2) + fmt.Sprintf("W:%-5dH:%-5d", t.Size().Width, t.Size().Height) + strings.Repeat(".", sizeDiv2)
+			if t.Size().Width%2 == 1 {
+				line += "."
+			} else {
+				line += ""
+			}
+			return t.Print(line)
 		},
 	}
-
-	// Actually start the terminal program
-	err = t.StartRaw(ctx, cancelFunc, writeLineListener)
+	// clear screen example:
+	clearScreenListener := terminal.Listener{
+		Name: "clear",
+		Applicable: func(r rune) bool {
+			return r == 'l'
+		},
+		Action: func(rune) error {
+			return t.ClearScreen(true)
+		},
+	}
+	// Actually start the terminal program.
+	// Note that the listeners are applied in order, so if more than one is applicable then the last entry will happen last
+	err = t.StartRaw(ctx, cancelFunc, writeLineListener, clearScreenListener)
 	if err != nil {
 		panic(err.Error())
 	}
-	// Hold the main thread until the context is cancelled by the terminal
-	select {
-	case <-ctx.Done():
+	if err = t.ClearScreen(true); err != nil {
+		panic(err.Error())
 	}
+	// Hold the main thread until the context is cancelled by the terminal
+	<-ctx.Done()
 }

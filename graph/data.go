@@ -32,16 +32,16 @@ func NewData(o ...Options) *Data {
 	if len(o) > 0 { // TODO explain options
 		defaultBlockLimit = o[0].BlockSize
 	}
-	x := &Data{
+	d := &Data{
 		Header:               &Header{Stats: &Stats{}},
 		curBlock:             0,
 		configuredBlockLimit: defaultBlockLimit,
 	}
-	x.Blocks = []*Block{{
+	d.Blocks = []*Block{{
 		Header: &Header{Stats: &Stats{}},
 		Raw:    make([]ping.PingResults, 0, defaultBlockLimit),
 	}}
-	return x
+	return d
 }
 
 func (d *Data) AddPoint(p ping.PingResults) {

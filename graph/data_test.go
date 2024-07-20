@@ -279,6 +279,7 @@ func blockVerify(t *testing.T, graphData *graph.Data, test DataTestCase) {
 	}
 }
 
+//nolint:unparam
 func asFloat64(scalar float64, t time.Duration) float64 {
 	return scalar * float64(t)
 }
