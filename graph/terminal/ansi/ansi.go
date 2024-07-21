@@ -40,7 +40,9 @@ const (
 	CursorToBeginOfLine EL = 1
 	EntireLine          EL = 2
 
-	R = CSI + "0m"
+	R          = CSI + "0m"
+	HideCursor = CSI + "?25l"
+	ShowCursor = CSI + "?25h"
 )
 
 // TODO compact this representation when defaults are passed, some chars may elided:

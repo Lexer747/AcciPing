@@ -18,10 +18,11 @@ import (
 
 type Data struct {
 	*Header
-	Blocks               []*Block
-	TotalCount           int
-	curBlock             int
-	configuredBlockLimit int
+	Blocks                []*Block
+	BetweenBlockGradients []float64
+	TotalCount            int
+	curBlock              int
+	configuredBlockLimit  int
 }
 
 type Options struct {
@@ -39,8 +40,9 @@ func NewData(o ...Options) *Data {
 		configuredBlockLimit: defaultBlockLimit,
 	}
 	d.Blocks = []*Block{{
-		Header: &Header{Stats: &Stats{}},
-		Raw:    make([]ping.PingResults, 0, defaultBlockLimit),
+		Header:    &Header{Stats: &Stats{}},
+		Raw:       make([]ping.PingResults, 0, defaultBlockLimit),
+		Gradients: make([]float64, 0, defaultBlockLimit-1),
 	}}
 	return d
 }
@@ -50,6 +52,8 @@ func (d *Data) AddPoint(p ping.PingResults) {
 	if len(curBlock.Raw) >= d.configuredBlockLimit {
 		// Make a new block and swap to it
 		d.addBlock()
+		last := curBlock.Raw[len(curBlock.Raw)-1]
+		d.BetweenBlockGradients = append(d.BetweenBlockGradients, gradient(last, p))
 		curBlock = d.getCurrentBlock()
 	}
 	curBlock.AddPoint(p)
@@ -88,8 +92,9 @@ func (s *TimeSpan) AddTimestamp(t time.Time) {
 
 // Header describes the statistical properties of a group of objects.
 type Header struct {
-	Stats *Stats
-	Span  *TimeSpan
+	Stats                    *Stats
+	Span                     *TimeSpan
+	MinGradient, MaxGradient float64
 }
 
 func (h *Header) AddPoint(p ping.PingResults) {
@@ -107,7 +112,8 @@ func (h *Header) AddPoint(p ping.PingResults) {
 
 type Block struct {
 	*Header
-	Raw []ping.PingResults
+	Raw       []ping.PingResults
+	Gradients []float64
 }
 
 func (b *Block) AddPoint(p ping.PingResults) {
@@ -117,6 +123,24 @@ func (b *Block) AddPoint(p ping.PingResults) {
 		Timestamp: p.Timestamp,
 		Error:     p.Error,
 	})
+	if b.Header.Stats.GoodCount > 1 {
+		last := b.Raw[len(b.Raw)-2]
+		grad := gradient(last, p)
+		b.Gradients = append(b.Gradients, grad)
+		if b.Header.Stats.GoodCount == 2 {
+			b.Header.MaxGradient = grad
+			b.Header.MinGradient = grad
+		} else {
+			b.Header.MaxGradient = max(b.Header.MaxGradient, grad)
+			b.Header.MinGradient = min(b.Header.MinGradient, grad)
+		}
+	}
+}
+
+func gradient(last ping.PingResults, current ping.PingResults) float64 {
+	rise := float64(current.Duration) - float64(last.Duration)
+	run := float64(current.Timestamp.Sub(last.Timestamp))
+	return rise / run
 }
 
 type Stats struct {
@@ -127,8 +151,6 @@ type Stats struct {
 	StandardDeviation float64
 	PacketsDropped    uint
 	sumOfSquares      float64
-	// TODO gradient
-	// TODO rate of gradient change
 }
 
 func (s Stats) PacketLoss() float64 {

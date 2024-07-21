@@ -14,7 +14,7 @@ import (
 	"github.com/Lexer747/AcciPing/graph"
 	"github.com/Lexer747/AcciPing/ping"
 	"github.com/Lexer747/AcciPing/utils/errors"
-	"github.com/Lexer747/AcciPing/utils/numeric"
+	"github.com/Lexer747/AcciPing/utils/test_helpers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -114,12 +114,12 @@ func TestStats(t *testing.T) {
 			for _, p := range test.Values {
 				asSingles.AddPoint(p)
 			}
-			assertFloatEqual(t, test.ExpectedMean, asSlice.Mean, 7, "asSlice Mean")
-			assertFloatEqual(t, test.ExpectedMean, asSingles.Mean, 7, "asSingles Mean")
-			assertFloatEqual(t, test.ExpectedVariance, asSlice.Variance, 7, "asSlice Variance")
-			assertFloatEqual(t, test.ExpectedVariance, asSingles.Variance, 7, "asSingles Variance")
-			assertFloatEqual(t, test.ExpectedStandardDeviation, asSlice.StandardDeviation, 5, "asSlice StandardDeviation")
-			assertFloatEqual(t, test.ExpectedStandardDeviation, asSingles.StandardDeviation, 5, "asSingles StandardDeviation")
+			test_helpers.AssertFloatEqual(t, test.ExpectedMean, asSlice.Mean, 7, "asSlice Mean")
+			test_helpers.AssertFloatEqual(t, test.ExpectedMean, asSingles.Mean, 7, "asSingles Mean")
+			test_helpers.AssertFloatEqual(t, test.ExpectedVariance, asSlice.Variance, 7, "asSlice Variance")
+			test_helpers.AssertFloatEqual(t, test.ExpectedVariance, asSingles.Variance, 7, "asSingles Variance")
+			test_helpers.AssertFloatEqual(t, test.ExpectedStandardDeviation, asSlice.StandardDeviation, 5, "asSlice StandardDeviation")
+			test_helpers.AssertFloatEqual(t, test.ExpectedStandardDeviation, asSingles.StandardDeviation, 5, "asSingles StandardDeviation")
 			assert.Equal(t, test.ExpectedMax, asSlice.Max, "asSlice Max")
 			assert.Equal(t, test.ExpectedMax, asSingles.Max, "asSingles Max")
 			assert.Equal(t, test.ExpectedMin, asSlice.Min, "asSlice Min")
@@ -130,18 +130,11 @@ func TestStats(t *testing.T) {
 	}
 }
 
-func assertFloatEqual(t *testing.T, expected float64, actual float64, sigFigs int, msgAndArgs ...interface{}) {
-	t.Helper()
-	a := numeric.RoundToNearestSigFig(actual, sigFigs)
-	e := numeric.RoundToNearestSigFig(expected, sigFigs)
-	assert.Equal(t, e, a, msgAndArgs...) //nolint:testifylint
-}
-
 func assertStatsEqual(t *testing.T, expected graph.Stats, actual graph.Stats, sigFigs int, msgAndArgs ...interface{}) {
 	t.Helper()
-	assertFloatEqual(t, expected.Mean, actual.Mean, sigFigs, msgAndArgs...)
-	assertFloatEqual(t, expected.Variance, actual.Variance, sigFigs, msgAndArgs...)
-	assertFloatEqual(t, expected.StandardDeviation, actual.StandardDeviation, sigFigs, msgAndArgs...)
+	test_helpers.AssertFloatEqual(t, expected.Mean, actual.Mean, sigFigs, msgAndArgs...)
+	test_helpers.AssertFloatEqual(t, expected.Variance, actual.Variance, sigFigs, msgAndArgs...)
+	test_helpers.AssertFloatEqual(t, expected.StandardDeviation, actual.StandardDeviation, sigFigs, msgAndArgs...)
 	if expected.GoodCount != 0 {
 		assert.Equal(t, expected.GoodCount, actual.GoodCount, msgAndArgs...)
 	}
@@ -155,8 +148,10 @@ func assertTimeSpanEqual(t *testing.T, expected graph.TimeSpan, actual graph.Tim
 }
 
 type BlockTest struct {
-	ExpectedBlocks []graph.Block
-	CheckRaw       bool
+	ExpectedBlocks    []graph.Block
+	ExpectedGradients []float64
+	CheckGradient     bool
+	CheckRaw          bool
 }
 
 type DataTestCase struct {
@@ -198,48 +193,72 @@ func TestData(t *testing.T) {
 		},
 		{
 			Values: []ping.PingResults{
-				{Duration: 5 * time.Millisecond, Timestamp: origin},
-				{Duration: 6 * time.Millisecond, Timestamp: origin.Add(time.Minute)},
-				{Duration: 5 * time.Millisecond, Timestamp: origin.Add(2 * time.Minute)},
-				{Duration: 7 * time.Millisecond, Timestamp: origin.Add(3 * time.Minute)},
-				{Duration: 3 * time.Millisecond, Timestamp: origin.Add(4 * time.Minute)},
-				{Duration: 5 * time.Millisecond, Timestamp: origin.Add(5 * time.Minute)},
-				{Duration: 6 * time.Millisecond, Timestamp: origin.Add(6 * time.Minute)},
-				{Duration: 5 * time.Millisecond, Timestamp: origin.Add(7 * time.Minute)},
-				{Duration: 7 * time.Millisecond, Timestamp: origin.Add(8 * time.Minute)},
-				{Duration: 3 * time.Millisecond, Timestamp: origin.Add(9 * time.Minute)},
+				{Duration: 5 * time.Nanosecond, Timestamp: origin},
+				{Duration: 6 * time.Nanosecond, Timestamp: origin.Add(time.Nanosecond)},
+				{Duration: 5 * time.Nanosecond, Timestamp: origin.Add(2 * time.Nanosecond)},
+				{Duration: 7 * time.Nanosecond, Timestamp: origin.Add(3 * time.Nanosecond)},
+				{Duration: 3 * time.Nanosecond, Timestamp: origin.Add(4 * time.Nanosecond)},
+				{Duration: 5 * time.Nanosecond, Timestamp: origin.Add(5 * time.Nanosecond)},
+				{Duration: 6 * time.Nanosecond, Timestamp: origin.Add(6 * time.Nanosecond)},
+				{Duration: 5 * time.Nanosecond, Timestamp: origin.Add(7 * time.Nanosecond)},
+				{Duration: 7 * time.Nanosecond, Timestamp: origin.Add(8 * time.Nanosecond)},
+				{Duration: 3 * time.Nanosecond, Timestamp: origin.Add(9 * time.Nanosecond)},
 			},
 			BlockSize: 5,
 			ExpectedGraphSpan: graph.TimeSpan{
 				Begin:    origin,
-				End:      origin.Add(9 * time.Minute),
-				Duration: 9 * time.Minute,
+				End:      origin.Add(9 * time.Nanosecond),
+				Duration: 9 * time.Nanosecond,
 			},
 			ExpectedGraphStats: graph.Stats{
-				Mean:              asFloat64(5.2, time.Millisecond),
+				Mean:              asFloat64(5.2, time.Nanosecond),
 				GoodCount:         10,
-				Variance:          1_955_555_600_000,
-				StandardDeviation: asFloat64(1.3984118, time.Millisecond),
+				Variance:          1.955,
+				StandardDeviation: asFloat64(1.3984118, time.Nanosecond),
 			},
 			BlockTest: &BlockTest{
 				// This test has enough data to split the storage over multiple blocks, the blocks are
 				// near identical except timestamps.
 				ExpectedBlocks: []graph.Block{{
-					Header: &graph.Header{Stats: &graph.Stats{
-						Mean:              asFloat64(5.2, time.Millisecond),
-						GoodCount:         5,
-						Variance:          2_200_000_000_000,
-						StandardDeviation: asFloat64(1.4832397, time.Millisecond),
-					}, Span: &graph.TimeSpan{Begin: origin, End: origin.Add(4 * time.Minute), Duration: 4 * time.Minute}},
+					Header: &graph.Header{
+						Stats: &graph.Stats{
+							Mean:              asFloat64(5.2, time.Nanosecond),
+							GoodCount:         5,
+							Variance:          2.2,
+							StandardDeviation: asFloat64(1.4832397, time.Nanosecond),
+						},
+						Span: &graph.TimeSpan{Begin: origin, End: origin.Add(4 * time.Nanosecond), Duration: 4 * time.Nanosecond},
+					},
+					Gradients: []float64{
+						(6.0 - 5.0) / 1.0,
+						(5.0 - 6.0) / 1.0,
+						(7.0 - 5.0) / 1.0,
+						(3.0 - 7.0) / 1.0,
+					},
 				}, {
-					Header: &graph.Header{Stats: &graph.Stats{
-						Mean:              asFloat64(5.2, time.Millisecond),
-						GoodCount:         5,
-						Variance:          2_200_000_000_000,
-						StandardDeviation: asFloat64(1.4832397, time.Millisecond),
-					}, Span: &graph.TimeSpan{Begin: origin.Add(5 * time.Minute), End: origin.Add(9 * time.Minute), Duration: 4 * time.Minute}},
+					Header: &graph.Header{
+						Stats: &graph.Stats{
+							Mean:              asFloat64(5.2, time.Nanosecond),
+							GoodCount:         5,
+							Variance:          2.2,
+							StandardDeviation: asFloat64(1.4832397, time.Nanosecond),
+						},
+						Span: &graph.TimeSpan{
+							Begin:    origin.Add(5 * time.Nanosecond),
+							End:      origin.Add(9 * time.Nanosecond),
+							Duration: 4 * time.Nanosecond,
+						},
+					},
+					Gradients: []float64{
+						(6.0 - 5.0) / 1.0,
+						(5.0 - 6.0) / 1.0,
+						(7.0 - 5.0) / 1.0,
+						(3.0 - 7.0) / 1.0,
+					},
 				}},
-				CheckRaw: false,
+				ExpectedGradients: []float64{(5.0 - 3.0) / 1.0},
+				CheckRaw:          false,
+				CheckGradient:     true,
 			},
 			ExpectedTotalCount: 10,
 		},
@@ -278,7 +297,7 @@ func TestData(t *testing.T) {
 			}
 			assertStatsEqual(t, test.ExpectedGraphStats, *graphData.Header.Stats, 3, "global graph header")
 			assertTimeSpanEqual(t, test.ExpectedGraphSpan, *graphData.Header.Span, "global graph header")
-			assertFloatEqual(t, test.ExpectedPacketLoss, graphData.Header.Stats.PacketLoss(), 5, "global packet loss percent")
+			test_helpers.AssertFloatEqual(t, test.ExpectedPacketLoss, graphData.Header.Stats.PacketLoss(), 5, "global packet loss percent")
 			if test.BlockTest != nil {
 				blockVerify(t, graphData, test)
 			}
@@ -297,6 +316,23 @@ func blockVerify(t *testing.T, graphData *graph.Data, test DataTestCase) {
 			require.Lenf(t, block.Raw, len(expectedBlock.Raw), "block %d was unexpected len", i)
 			for rawIndex, datum := range block.Raw {
 				assert.Equal(t, expectedBlock.Raw[rawIndex], datum, "raw inside block %d at index %d", i, rawIndex)
+			}
+		}
+		if test.BlockTest.CheckGradient {
+			require.Lenf(t, block.Gradients, len(expectedBlock.Gradients), "block %d was unexpected len", i)
+			expectedMin := block.Gradients[0]
+			expectedMax := block.Gradients[0]
+			for gradientIndex, datum := range block.Gradients {
+				expected := expectedBlock.Gradients[gradientIndex]
+				expectedMin = min(expectedMin, expected)
+				expectedMax = max(expectedMax, expected)
+				test_helpers.AssertFloatEqual(t, expected, datum, 6, "gradient inside block %d at index %d", i, gradientIndex)
+			}
+			test_helpers.AssertFloatEqual(t, expectedMin, block.MinGradient, 4, "min gradient for block %d", i)
+			test_helpers.AssertFloatEqual(t, expectedMax, block.MaxGradient, 4, "max gradient for block %d", i)
+			if i > 0 {
+				test_helpers.AssertFloatEqual(t, test.BlockTest.ExpectedGradients[i-1], graphData.BetweenBlockGradients[i-1], 6,
+					"gradient between blocks %d and %d", i-1, i)
 			}
 		}
 	}

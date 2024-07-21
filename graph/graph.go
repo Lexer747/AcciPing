@@ -18,6 +18,7 @@ import (
 	"github.com/Lexer747/AcciPing/graph/terminal/typography"
 	"github.com/Lexer747/AcciPing/ping"
 	"github.com/Lexer747/AcciPing/utils/errors"
+	"github.com/Lexer747/AcciPing/utils/numeric"
 )
 
 type Graph struct {
@@ -51,7 +52,12 @@ func NewGraph(ctx context.Context, input chan ping.PingResults, pingsPerMinute f
 }
 
 func (g *Graph) Run(ctx context.Context, stop context.CancelCauseFunc, fps int) error {
-	frameRate := time.NewTicker(time.Duration(1000/fps) * time.Millisecond)
+	var frameRate *time.Ticker
+	if fps == 0 {
+		frameRate = time.NewTicker(ping.PingsPerMinuteToDuration(g.pingsPerMinute))
+	} else {
+		frameRate = time.NewTicker(time.Duration(1000/fps) * time.Millisecond)
+	}
 	cleanup, err := g.term.StartRaw(ctx, stop) // TODO add UI listeners, zooming, changing ping speed - etc
 	defer cleanup()
 	if err != nil {
@@ -88,10 +94,10 @@ func (g *Graph) computeFrame() string {
 		g.dataMutex.Unlock()
 		return "" // no data yet
 	}
-	if count == g.lastFrame.PacketCount && g.lastFrame.Match(s) {
-		g.dataMutex.Unlock() // fast path the frame didn't change
-		return g.lastFrame.fullFrame
-	}
+	// if count == g.lastFrame.PacketCount && g.lastFrame.Match(s) {
+	// 	g.dataMutex.Unlock() // fast path the frame didn't change
+	// 	return g.lastFrame.fullFrame
+	// }
 
 	x := computeXAxis(s.Width, g.data.Header.Span)
 	y := computeYAxis(s, g.data.Header.Stats, g.url)
@@ -131,12 +137,60 @@ type frame struct {
 	fullFrame   string
 }
 
-func computeInnerFrame(_ terminal.Size, _ *Data) string {
-	return ""
-}
-
 func (f frame) Match(s terminal.Size) bool {
 	return f.xAxis.size == s.Width && f.yAxis.size == s.Height
+}
+
+var point = ansi.LightGray(typography.Diamond)
+
+func gradientString(gradient float64, info *Header) string {
+	normalized := numeric.Normalize(gradient, info.MinGradient, info.MaxGradient)
+	return typography.Gradient(normalized)
+}
+
+func translate(s terminal.Size, p ping.PingResults, info *Header) (row, column int) {
+	timestamp := info.Span.End.Sub(p.Timestamp)
+	column = int(numeric.NormalizeToRange(
+		float64(timestamp),
+		0,
+		float64(info.Span.Duration),
+		float64(s.Width-1),
+		13,
+	))
+	row = int(numeric.NormalizeToRange(
+		float64(p.Duration),
+		float64(info.Stats.Min),
+		float64(info.Stats.Max),
+		2,
+		float64(s.Height-1),
+	))
+	// fmt.Printf("START %s | %s | row %d (%+v, %+v, %+v, %+v, %+v) | column %d (%+v, %+v, %+v, %+v, %+v) END ",
+	// 	s.String(), p.String(),
+	// 	row, timestamp, 0, info.Span.Duration, 1, s.Width,
+	// 	column, p.Duration, info.Stats.Min, info.Stats.Max, 1, s.Height,
+	// )
+	return
+}
+
+func computeInnerFrame(s terminal.Size, d *Data) string {
+	centreRow := s.Width / 2
+	centreColumn := s.Height / 2
+	if d.TotalCount <= 1 {
+		return ansi.CursorPosition(centreRow, centreColumn) + point
+	}
+	ret := ""
+	for _, block := range d.Blocks {
+		for _, p := range block.Raw {
+			if p.Error != nil {
+				// dropped packet
+				panic("implement dropped packets graphing")
+			} else {
+				row, column := translate(s, p, d.Header)
+				ret += ansi.CursorPosition(row, column) + point
+			}
+		}
+	}
+	return ret
 }
 
 func computeYAxis(size terminal.Size, stats *Stats, url string) yAxis {
@@ -148,7 +202,7 @@ func computeYAxis(size terminal.Size, stats *Stats, url string) yAxis {
 	title := ansi.Cyan(url) + " [" + stats.String() + "] " + ansi.Green(size.String())
 	titleIndent := (size.Width / 2) - (len(title) / 2)
 	// TODO crop the title if it wont fit
-	fmt.Fprint(&b, ansi.Magenta("Latency")+ansi.CursorForward(titleIndent)+title)
+	fmt.Fprint(&b, ansi.Home+ansi.Magenta("Latency")+ansi.CursorForward(titleIndent)+title)
 
 	gapSize := 3
 	if size.Height > 20 {
@@ -165,10 +219,9 @@ func computeYAxis(size terminal.Size, stats *Stats, url string) yAxis {
 			toPrint := stats.Max - (durationGap * time.Duration(i))
 			fmt.Fprint(&b, ansi.Yellow(toPrint.String()))
 		} else {
-			fmt.Fprint(&b, ansi.White("|"))
+			fmt.Fprint(&b, ansi.White(typography.Vertical))
 		}
 	}
-
 	return yAxis{
 		size:  size.Height,
 		stats: stats,
@@ -185,8 +238,8 @@ type yAxis struct {
 func computeXAxis(size int, span *TimeSpan) xAxis {
 	const format = "15:04:05.99"
 	const formatLen = 11
-	const spacePerItem = formatLen + 4
-	padding := ansi.White("--")
+	const spacePerItem = formatLen + 6
+	padding := ansi.White(typography.Horizontal + typography.Horizontal)
 	var b strings.Builder
 	// Making of a buffer of [size] will be too small because ansi + unicode will take up more bytes than the
 	// character space they take up
@@ -202,12 +255,12 @@ func computeXAxis(size int, span *TimeSpan) xAxis {
 		if len(x) < formatLen {
 			x += "0"
 		}
-		fmt.Fprint(&b, padding+ansi.Yellow(x)+padding)
+		fmt.Fprint(&b, padding+" "+ansi.Yellow(x)+" "+padding)
 		remaining -= spacePerItem
 	}
 	if remaining > 0 {
 		// TODO also put some chars at the beginning of the axis
-		final := strings.Repeat("-", remaining)
+		final := strings.Repeat(typography.Horizontal, remaining)
 		fmt.Fprint(&b, ansi.White(final))
 	}
 	return xAxis{
@@ -224,8 +277,8 @@ type xAxis struct {
 }
 
 func paint(size terminal.Size, x string, y string, lines string) string {
-	ret := ansi.Clear + ansi.Home
-	ret += y + lines
+	ret := ansi.Clear
+	ret += lines + y
 	ret += ansi.CursorPosition(size.Height, 1)
 	ret += x
 	return ret

@@ -83,6 +83,14 @@ type PingResults struct {
 	Error     error
 }
 
+func (p PingResults) String() string {
+	const f = "15:04:05.99"
+	if p.Error == nil {
+		return p.Timestamp.Format(f) + ": " + p.Duration.String()
+	}
+	return p.Timestamp.Format(f) + ": DROPPED"
+}
+
 func (p *Ping) CreateChannel(ctx context.Context, url string, pingsPerMinute float64, channelSize int) (chan PingResults, error) {
 	if pingsPerMinute < 0 {
 		return nil, errors.Errorf("Invalid pings per minute %f, should be larger than 0", pingsPerMinute)

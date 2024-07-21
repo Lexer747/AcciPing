@@ -30,7 +30,7 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
-	err = g.Run(ctx, cancelFunc, 1)
+	err = g.Run(ctx, cancelFunc, 0)
 	if err != nil && !errors.Is(err, terminal.UserCancelled) {
 		panic(err.Error())
 	} else {

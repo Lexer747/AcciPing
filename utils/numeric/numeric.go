@@ -22,3 +22,16 @@ func RoundToNearestSigFig(input float64, sigFig int) float64 {
 func Exponent(input float64) float64 {
 	return math.Ceil(math.Log10(math.Abs(input)))
 }
+
+// Normalize will scale [v] to between [0,1], based on it's ratio between the input [min,max].
+func Normalize(v, min, max float64) float64 {
+	return NormalizeToRange(v, min, max, 0, 1)
+}
+
+// NormalizeToRange scales [v] which is located within the range [min,max] and then rescales [v] such that it
+// is the same ratio inside the new range [newMin,newMax].
+//
+// Inspired by my original https://github.com/Lexer747/PingPlotter/blob/master/src/Graph/Internal.hs#L15
+func NormalizeToRange(v, min, max, newMin, newMax float64) float64 {
+	return (((newMax - newMin) * (v - min)) / (max - min)) + newMin
+}
