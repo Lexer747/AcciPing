@@ -22,7 +22,7 @@ import (
 )
 
 type Graph struct {
-	term        *terminal.Terminal
+	Term        *terminal.Terminal
 	data        *Data
 	dataMutex   *sync.Mutex
 	dataChannel chan ping.PingResults
@@ -40,7 +40,7 @@ func NewGraph(ctx context.Context, input chan ping.PingResults, pingsPerMinute f
 		return nil, errors.Wrap(err, "failed to make graph")
 	}
 	g := &Graph{
-		term:           t,
+		Term:           t,
 		data:           NewData(),
 		dataMutex:      &sync.Mutex{},
 		dataChannel:    input,
@@ -58,19 +58,19 @@ func (g *Graph) Run(ctx context.Context, stop context.CancelCauseFunc, fps int) 
 	} else {
 		frameRate = time.NewTicker(time.Duration(1000/fps) * time.Millisecond)
 	}
-	cleanup, err := g.term.StartRaw(ctx, stop) // TODO add UI listeners, zooming, changing ping speed - etc
+	cleanup, err := g.Term.StartRaw(ctx, stop) // TODO add UI listeners, zooming, changing ping speed - etc
 	defer cleanup()
 	if err != nil {
 		return err
 	}
 	for {
-		if err = g.term.UpdateCurrentTerminalSize(); err != nil {
+		if err = g.Term.UpdateCurrentTerminalSize(); err != nil {
 			return err
 		}
 		toWrite := g.computeFrame()
 		// Currently no strong opinions on dropped frames this is fine
 		<-frameRate.C
-		g.term.Print(toWrite)
+		g.Term.Print(toWrite)
 		select {
 		case <-ctx.Done():
 			return context.Cause(ctx)
@@ -87,32 +87,40 @@ func (g *Graph) Summarize() string {
 
 // TODO compute the frame into an existing buffer instead of a string API
 func (g *Graph) computeFrame() string {
-	s := g.term.Size() // This is race-y so ensure a consistent size for rendering
+	s := g.Term.Size() // This is race-y so ensure a consistent size for rendering
 	g.dataMutex.Lock()
 	count := g.data.TotalCount
 	if count == 0 {
 		g.dataMutex.Unlock()
 		return "" // no data yet
 	}
-	// if count == g.lastFrame.PacketCount && g.lastFrame.Match(s) {
-	// 	g.dataMutex.Unlock() // fast path the frame didn't change
-	// 	return g.lastFrame.fullFrame
-	// }
+	g.lastFrame.spinnerIndex++
+	spinnerValue := spinner(s, g.lastFrame.spinnerIndex)
+	if count == g.lastFrame.PacketCount && g.lastFrame.Match(s) {
+		g.dataMutex.Unlock() // fast path the frame didn't change
+		return spinnerValue
+	}
 
 	x := computeXAxis(s.Width, g.data.Header.Span)
 	y := computeYAxis(s, g.data.Header.Stats, g.url)
 	innerFrame := computeInnerFrame(s, g.data)
 	// Everything we need is now cached we can unlock a bit early while we tidy up for the next frame
 	g.dataMutex.Unlock()
-	finished := paint(s, x.axis, y.axis, innerFrame)
+	finished := paint(s, x.axis, y.axis, innerFrame, spinnerValue)
 	g.lastFrame = frame{
-		PacketCount: count,
-		yAxis:       y,
-		xAxis:       x,
-		insideFrame: innerFrame,
-		fullFrame:   finished,
+		PacketCount:  count,
+		yAxis:        y,
+		xAxis:        x,
+		insideFrame:  innerFrame,
+		spinnerIndex: g.lastFrame.spinnerIndex,
 	}
 	return finished
+}
+
+var spinnerArray = [...]string{typography.Vertical, typography.UpSlope, typography.Horizontal, typography.DownSlope}
+
+func spinner(s terminal.Size, i int) string {
+	return ansi.CursorPosition(2, s.Width-3) + ansi.Cyan(spinnerArray[i%len(spinnerArray)])
 }
 
 func (g *Graph) sink(ctx context.Context) {
@@ -130,11 +138,11 @@ func (g *Graph) sink(ctx context.Context) {
 }
 
 type frame struct {
-	PacketCount int
-	yAxis       yAxis
-	xAxis       xAxis
-	insideFrame string
-	fullFrame   string
+	PacketCount  int
+	yAxis        yAxis
+	xAxis        xAxis
+	insideFrame  string
+	spinnerIndex int
 }
 
 func (f frame) Match(s terminal.Size) bool {
@@ -199,10 +207,8 @@ func computeYAxis(size terminal.Size, stats *Stats, url string) yAxis {
 	// character space they take up
 	b.Grow(size.Height * 2)
 
-	title := ansi.Cyan(url) + " [" + stats.String() + "] " + ansi.Green(size.String())
-	titleIndent := (size.Width / 2) - (len(title) / 2)
-	// TODO crop the title if it wont fit
-	fmt.Fprint(&b, ansi.Home+ansi.Magenta("Latency")+ansi.CursorForward(titleIndent)+title)
+	finalTitle := makeTitle(size, stats, url)
+	fmt.Fprint(&b, finalTitle)
 
 	gapSize := 3
 	if size.Height > 20 {
@@ -227,6 +233,18 @@ func computeYAxis(size terminal.Size, stats *Stats, url string) yAxis {
 		stats: stats,
 		axis:  b.String(),
 	}
+}
+
+func makeTitle(size terminal.Size, stats *Stats, url string) string {
+	// TODO string builder, or larger buffer impl
+	sizeStr := size.String()
+	titleBegin := ansi.Cyan(url) + " ["
+	titleEnd := "] " + ansi.Green(sizeStr)
+	remaining := size.Width - 7 - len(url) - 4 - len(sizeStr)
+	title := titleBegin + stats.PickString(remaining) + titleEnd
+	titleIndent := (size.Width / 2) - (len(title) / 2)
+	finalTitle := ansi.Home + ansi.Magenta("Latency") + ansi.CursorForward(titleIndent) + title
+	return finalTitle
 }
 
 type yAxis struct {
@@ -276,10 +294,11 @@ type xAxis struct {
 	axis     string
 }
 
-func paint(size terminal.Size, x string, y string, lines string) string {
+func paint(size terminal.Size, x, y, lines, spinner string) string {
 	ret := ansi.Clear
 	ret += lines + y
 	ret += ansi.CursorPosition(size.Height, 1)
 	ret += x
+	ret += spinner
 	return ret
 }

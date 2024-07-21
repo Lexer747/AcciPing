@@ -113,6 +113,7 @@ func (t *Terminal) StartRaw(ctx context.Context, stop context.CancelCauseFunc, l
 		closer = func() { _ = term.Restore(inFd, oldState) }
 	}
 	ctrlCAction := func(rune) error {
+		t.Print(ansi.ShowCursor)
 		closer()
 		stop(UserCancelled)
 		return nil
@@ -130,6 +131,7 @@ func (t *Terminal) StartRaw(ctx context.Context, stop context.CancelCauseFunc, l
 		Action:     ctrlCAction,
 	}
 	t.listeners = slices.Concat(t.listeners, []Listener{controlCListener}, listeners)
+	t.Print(ansi.HideCursor)
 	go t.beingListening(ctx)
 	return t.cleanup, nil
 }

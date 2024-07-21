@@ -229,14 +229,68 @@ func stringFloatTime(f float64) string {
 	return d.String()
 }
 
+func (s Stats) PickString(remainingSpace int) string {
+	// heuristic is good enough for now
+	switch {
+	case remainingSpace > 100:
+		return s.longString()
+	case remainingSpace > 70 && s.PacketsDropped > 0:
+		return s.mediumString()
+	case remainingSpace > 55 && s.PacketsDropped == 0:
+		return s.mediumString()
+	case remainingSpace > 45 && s.PacketsDropped > 0:
+		return s.shortString()
+	case remainingSpace > 35 && s.PacketsDropped == 0:
+		return s.shortString()
+	default:
+		return s.superShortString()
+	}
+}
+
 func (s Stats) String() string {
+	return s.mediumString()
+}
+
+func (s Stats) superShortString() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "\u03BC %s | \u03C3 %s",
+		stringFloatTime(numeric.RoundToNearestSigFig(s.Mean, 4)),
+		stringFloatTime(numeric.RoundToNearestSigFig(s.StandardDeviation, 4)))
+	if s.PacketsDropped > 0 {
+		fmt.Fprintf(&b, " | %.1f%%", numeric.RoundToNearestSigFig(s.PacketLoss(), 4))
+	}
+	fmt.Fprintf(&b, " | Count %d", s.PacketsDropped+s.GoodCount)
+	return b.String()
+}
+
+func (s Stats) shortString() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "\u03BC %s | \u03C3 %s",
+		stringFloatTime(s.Mean), stringFloatTime(s.StandardDeviation))
+	if s.PacketsDropped > 0 {
+		fmt.Fprintf(&b, " | Loss %.1f%%", numeric.RoundToNearestSigFig(s.PacketLoss(), 4))
+	}
+	fmt.Fprintf(&b, " | Packet Count %d", s.PacketsDropped+s.GoodCount)
+	return b.String()
+}
+
+func (s Stats) mediumString() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Average \u03BC %s | SD \u03C3 %s",
 		stringFloatTime(s.Mean), stringFloatTime(s.StandardDeviation))
 	if s.PacketsDropped > 0 {
-		fmt.Fprintf(&b, " | PacketLoss %f%% | Dropped %d", numeric.RoundToNearestSigFig(s.PacketLoss(), 4), s.PacketsDropped)
+		fmt.Fprintf(&b, " | PacketLoss %.1f%%", numeric.RoundToNearestSigFig(s.PacketLoss(), 4))
 	}
-	fmt.Fprintf(&b, " | Good Packets %d | Total Packets %d", s.GoodCount, s.PacketsDropped+s.GoodCount)
+	fmt.Fprintf(&b, " | Packet Count %d", s.PacketsDropped+s.GoodCount)
+	return b.String()
+}
+
+func (s Stats) longString() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Average \u03BC %s | SD \u03C3 %s",
+		stringFloatTime(s.Mean), stringFloatTime(s.StandardDeviation))
+	fmt.Fprintf(&b, " | PacketLoss %.1f%% | Dropped %d", numeric.RoundToNearestSigFig(s.PacketLoss(), 4), s.PacketsDropped)
+	fmt.Fprintf(&b, " | Good Packets %d | Packet Count %d", s.GoodCount, s.PacketsDropped+s.GoodCount)
 	return b.String()
 }
 

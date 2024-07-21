@@ -30,10 +30,11 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
-	err = g.Run(ctx, cancelFunc, 0)
+	err = g.Run(ctx, cancelFunc, 20)
 	if err != nil && !errors.Is(err, terminal.UserCancelled) {
 		panic(err.Error())
 	} else {
-		fmt.Println(g.Summarize())
+		_ = g.Term.ClearScreen(true)
+		fmt.Println("Summary\t" + g.Summarize())
 	}
 }
