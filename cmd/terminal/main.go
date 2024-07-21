@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/Lexer747/AcciPing/graph/terminal"
+	"github.com/Lexer747/AcciPing/graph/terminal/ansi"
 )
 
 // A small demo of the terminal API, this program will emit a terminal sized line every time it hears a key,
@@ -33,7 +34,8 @@ func main() {
 		},
 		Action: func(rune) error {
 			sizeDiv2 := (t.Size().Width / 2) - 7
-			line := strings.Repeat(".", sizeDiv2) + fmt.Sprintf("W:%-5dH:%-5d", t.Size().Width, t.Size().Height) + strings.Repeat(".", sizeDiv2)
+			x := fmt.Sprintf("W:%-5dH:%-5d", t.Size().Width, t.Size().Height)
+			line := strings.Repeat(".", sizeDiv2) + ansi.Yellow(x) + strings.Repeat(".", sizeDiv2)
 			if t.Size().Width%2 == 1 {
 				line += "."
 			} else {
@@ -54,13 +56,15 @@ func main() {
 	}
 	// Actually start the terminal program.
 	// Note that the listeners are applied in order, so if more than one is applicable then the last entry will happen last
-	err = t.StartRaw(ctx, cancelFunc, writeLineListener, clearScreenListener)
+	cleanup, err := t.StartRaw(ctx, cancelFunc, writeLineListener, clearScreenListener)
+	defer cleanup()
 	if err != nil {
 		panic(err.Error())
 	}
 	if err = t.ClearScreen(true); err != nil {
 		panic(err.Error())
 	}
+	t.Print("Press 'l' to clear the screen, any other char to print a line, ctrl-c to quit." + ansi.CursorPosition(2, 1))
 	// Hold the main thread until the context is cancelled by the terminal
 	<-ctx.Done()
 }

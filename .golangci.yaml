@@ -67,6 +67,7 @@ linters:
     - nlreturn
     - nonamedreturns
     - revive
+    - unparam
     - varnamelen
     - wrapcheck
     - wsl

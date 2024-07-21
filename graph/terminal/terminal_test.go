@@ -26,7 +26,7 @@ func TestTerminalWrite(t *testing.T) {
 	require.NoError(t, err)
 	ctx, cancelFunc := context.WithCancelCause(context.Background())
 	defer cancelFunc(nil)
-	err = term.StartRaw(ctx, cancelFunc)
+	_, err = term.StartRaw(ctx, cancelFunc)
 	require.NoError(t, err)
 	const hello = "Hello world"
 	term.Print(hello)
@@ -41,7 +41,7 @@ func TestTerminalReading(t *testing.T) {
 	ctx, cancelFunc := context.WithTimeoutCause(context.Background(), time.Second, timeout)
 	cancelWithCause := func(err error) { cancelFunc() }
 	defer cancelWithCause(nil)
-	err = term.StartRaw(ctx, cancelWithCause)
+	_, err = term.StartRaw(ctx, cancelWithCause)
 	require.NoError(t, err)
 	_, _ = stdin.Write([]byte("\x03")) // ctrl-c will cause the terminal to cancel
 
@@ -70,7 +70,7 @@ func TestTerminalListener(t *testing.T) {
 			return nil
 		},
 	}
-	err = term.StartRaw(ctx, cancelFunc, testListener)
+	_, err = term.StartRaw(ctx, cancelFunc, testListener)
 	require.NoError(t, err)
 	_, _ = stdin.Write([]byte("a"))
 	a := stdout.readString(t)

@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"slices"
+	"strconv"
 	"sync"
 
 	"github.com/Lexer747/AcciPing/graph/terminal/ansi"
@@ -25,6 +26,10 @@ type Size struct {
 	Width  int
 }
 
+func (s Size) String() string {
+	return "W: " + strconv.Itoa(s.Width) + " H: " + strconv.Itoa(s.Height)
+}
+
 type Terminal struct {
 	size      Size
 	listeners []Listener
@@ -33,6 +38,9 @@ type Terminal struct {
 	stdout               *stdout
 	terminalSizeCallBack func() Size
 	isTestTerminal       bool
+
+	// should be called if a panic occurs otherwise stacktraces are unreadable
+	cleanup func()
 
 	listenMutex *sync.Mutex
 }
@@ -69,9 +77,11 @@ type Listener struct {
 	Action func(rune) error
 }
 
-type UserControlCErr struct{}
+type userControlCErr struct{}
 
-func (UserControlCErr) Error() string {
+var UserCancelled = userControlCErr{}
+
+func (userControlCErr) Error() string {
 	return "user cancelled"
 }
 
@@ -79,38 +89,54 @@ func (UserControlCErr) Error() string {
 // block on the users input and forward characters to the relevant listener. By default a `ctrl+C` listener is
 // added which will call the [stop] function when detected.
 //
+// The first return value is a clean up function which recover from a panic, putting the terminal back into
+// normal mode and unhooking the listeners so that the program terminates gracefully upon a panic in another
+// thread. It should be called like so:
+//
+//	term, _ := terminal.NewTerminal()
+//	cleanup, _ := term.StartRaw(ctx, stop)
+//	defer cleanup() // Graceful panic recovery
+//	<-ctx.Done() // Wait till user cancels with ctrl+C
+//
 // To block a main thread until the `ctrl+C` listener is hit, simply wait on the input [ctx.Done()] channel.
 //
 // The `ctrl-c` listener will also provide the [terminal.UserControlCErr] cause when this happens for use with
 // [error.Is].
-func (t *Terminal) StartRaw(ctx context.Context, stop context.CancelCauseFunc, listeners ...Listener) error {
+func (t *Terminal) StartRaw(ctx context.Context, stop context.CancelCauseFunc, listeners ...Listener) (func(), error) {
 	closer := func() {}
 	if !t.isTestTerminal {
 		inFd := int(t.stdin.realFile.Fd())
 		oldState, err := term.MakeRaw(inFd)
 		if err != nil {
-			return errors.Wrap(err, "failed to set terminal to raw mode")
+			return nil, errors.Wrap(err, "failed to set terminal to raw mode")
 		}
 		closer = func() { _ = term.Restore(inFd, oldState) }
+	}
+	ctrlCAction := func(rune) error {
+		closer()
+		stop(UserCancelled)
+		return nil
+	}
+	t.cleanup = func() {
+		if err := recover(); err != nil {
+			_ = ctrlCAction('\x00')
+			panic(err)
+		}
 	}
 
 	controlCListener := Listener{
 		Name:       "ctrl+c",
 		Applicable: func(r rune) bool { return r == '\x03' },
-		Action: func(rune) error {
-			closer()
-			stop(UserControlCErr{})
-			return nil
-		},
+		Action:     ctrlCAction,
 	}
 	t.listeners = slices.Concat(t.listeners, []Listener{controlCListener}, listeners)
 	go t.beingListening(ctx)
-	return nil
+	return t.cleanup, nil
 }
 
 func (t *Terminal) ClearScreen(updateSize bool) error {
 	if updateSize {
-		if err := t.updateCurrentTerminalSize(); err != nil {
+		if err := t.UpdateCurrentTerminalSize(); err != nil {
 			return errors.Wrap(err, "while ctrl-f")
 		}
 	}
@@ -140,11 +166,13 @@ func (t *Terminal) beingListening(ctx context.Context) {
 	processingChannel := make(chan struct{})
 	// Create a go-routine which continuously reads from stdin
 	go func() {
+		defer t.cleanup()
 		// This is blocking hence why the go-routine wrapper exists, we still only free ourself when
 		// the outer context is done which is racey.
 		t.listen(ctx, listenChannel, processingChannel, buffer)
 	}()
 
+	defer t.cleanup()
 	for {
 		// Spin forever, waiting on input from the context which has cancelled us from else where, or a new
 		// input char.
@@ -155,11 +183,11 @@ func (t *Terminal) beingListening(ctx context.Context) {
 			if received.err != nil {
 				panic(errors.Wrap(received.err, "unexpected read failure in terminal"))
 			}
-			if err := t.updateCurrentTerminalSize(); err != nil {
+			if err := t.UpdateCurrentTerminalSize(); err != nil {
 				panic(errors.Wrap(err, "unexpected read failure in terminal"))
 			}
 			if received.n <= 0 {
-				panic("unexpected 0 byte read")
+				return // cancelled
 			}
 			r := rune(string(buffer[:received.n])[0])
 			// TODO pre-sort and order the listeners, then create a lookup instead of a linear search
@@ -209,7 +237,7 @@ func getCurrentTerminalSize(file *os.File) (Size, error) {
 }
 
 // updateCurrentTerminalSizes the terminals stored size.
-func (t *Terminal) updateCurrentTerminalSize() error {
+func (t *Terminal) UpdateCurrentTerminalSize() error {
 	if t.isTestTerminal {
 		t.size = t.terminalSizeCallBack()
 		return nil

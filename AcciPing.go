@@ -8,23 +8,32 @@ package main
 
 import (
 	"context"
-	"time"
+	"fmt"
 
 	"github.com/Lexer747/AcciPing/graph"
+	"github.com/Lexer747/AcciPing/graph/terminal"
 	"github.com/Lexer747/AcciPing/ping"
+	"github.com/Lexer747/AcciPing/utils/errors"
 )
 
 func main() {
+	const demoUrl = "www.google.com"
 	p := ping.NewPing()
-	ctx, cancelFunc := context.WithTimeout(context.Background(), 1*time.Minute)
-	defer cancelFunc()
-	channel, err := p.CreateChannel(ctx, "www.google.com", 5, 0)
+	ctx, cancelFunc := context.WithCancelCause(context.Background())
+	defer cancelFunc(nil)
+	pingsPerMinute := 15.0
+	channel, err := p.CreateChannel(ctx, demoUrl, pingsPerMinute, 10)
 	if err != nil {
 		panic(err.Error())
 	}
-	g, err := graph.NewGraph(channel, ctx)
+	g, err := graph.NewGraph(ctx, channel, pingsPerMinute, demoUrl)
 	if err != nil {
 		panic(err.Error())
 	}
-	g.Run(ctx, 1)
+	err = g.Run(ctx, cancelFunc, 1)
+	if err != nil && !errors.Is(err, terminal.UserCancelled) {
+		panic(err.Error())
+	} else {
+		fmt.Println(g.Summarize())
+	}
 }

@@ -19,6 +19,7 @@ import (
 type Data struct {
 	*Header
 	Blocks               []*Block
+	TotalCount           int
 	curBlock             int
 	configuredBlockLimit int
 }
@@ -53,6 +54,7 @@ func (d *Data) AddPoint(p ping.PingResults) {
 	}
 	curBlock.AddPoint(p)
 	d.Header.AddPoint(p)
+	d.TotalCount++
 }
 
 func (d *Data) addBlock() {
@@ -97,7 +99,7 @@ func (h *Header) AddPoint(p ping.PingResults) {
 		h.Span.AddTimestamp(p.Timestamp)
 	}
 	if p.Error == nil {
-		h.Stats.AddPoint(float64(p.Duration))
+		h.Stats.AddPoint(p.Duration)
 	} else {
 		h.Stats.AddDroppedPacket()
 	}
@@ -118,6 +120,7 @@ func (b *Block) AddPoint(p ping.PingResults) {
 }
 
 type Stats struct {
+	Min, Max          time.Duration
 	Mean              float64
 	GoodCount         uint
 	Variance          float64
@@ -140,7 +143,14 @@ func (s *Stats) AddDroppedPacket() {
 // TODO https://en.wikipedia.org/wiki/Kahan_summation_algorithm
 // Math proof for why this works:
 // https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Welford's_online_algorithm
-func (s *Stats) AddPoint(value float64) {
+func (s *Stats) AddPoint(input time.Duration) {
+	s.Max = max(s.Max, input)
+	s.Min = min(s.Min, input)
+	if s.GoodCount == 0 {
+		s.Max = input
+		s.Min = input
+	}
+	value := float64(input)
 	newCount := s.GoodCount + 1
 	delta := value - s.Mean
 	newMean := s.Mean + (delta / float64(newCount))
@@ -159,7 +169,7 @@ func (s *Stats) AddPoint(value float64) {
 	s.StandardDeviation = std
 }
 
-func (s *Stats) AddPoints(values []float64) {
+func (s *Stats) AddPoints(values []time.Duration) {
 	// TODO use one pass variance
 	// https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Weighted_incremental_algorithm
 	for _, v := range values {
@@ -204,7 +214,7 @@ func (s Stats) String() string {
 	if s.PacketsDropped > 0 {
 		fmt.Fprintf(&b, " | PacketLoss %f%% | Dropped %d", numeric.RoundToNearestSigFig(s.PacketLoss(), 4), s.PacketsDropped)
 	}
-	fmt.Fprintf(&b, " | Total Packets %d", s.GoodCount)
+	fmt.Fprintf(&b, " | Good Packets %d | Total Packets %d", s.GoodCount, s.PacketsDropped+s.GoodCount)
 	return b.String()
 }
 

@@ -102,8 +102,7 @@ func (p *Ping) CreateChannel(ctx context.Context, url string, pingsPerMinute flo
 
 	var rateLimit *time.Ticker
 	if pingsPerMinute != 0 { // Zero is the sentinel, go as fast as possible
-		gapBetweenPings := math.Round((60 * 1000) / (pingsPerMinute))
-		rateLimit = time.NewTicker(time.Millisecond * time.Duration(gapBetweenPings))
+		rateLimit = time.NewTicker(PingsPerMinuteToDuration(pingsPerMinute))
 	}
 
 	client := make(chan PingResults, channelSize)
@@ -127,6 +126,11 @@ func (p *Ping) CreateChannel(ctx context.Context, url string, pingsPerMinute flo
 	}
 	go run()
 	return client, nil
+}
+
+func PingsPerMinuteToDuration(pingsPerMinute float64) time.Duration {
+	gapBetweenPings := math.Round((60 * 1000) / (pingsPerMinute))
+	return time.Millisecond * time.Duration(gapBetweenPings)
 }
 
 func DNSQuery(url string) (net.IP, error) {

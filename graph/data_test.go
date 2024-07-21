@@ -22,51 +22,62 @@ import (
 func TestStats(t *testing.T) {
 	t.Parallel()
 	type Case struct {
-		Values                    []float64
+		Values                    []time.Duration
 		ExpectedMean              float64
 		ExpectedVariance          float64
 		ExpectedStandardDeviation float64
+		ExpectedMin, ExpectedMax  time.Duration
 	}
 	testCases := []Case{
 		{
-			Values: []float64{ // Times in milliseconds
-				5 * 1000 * 1000,
-				6 * 1000 * 1000,
-				5 * 1000 * 1000,
-				7 * 1000 * 1000,
-				3 * 1000 * 1000,
+			Values: []time.Duration{ // Times in milliseconds
+				5 * time.Millisecond,
+				6 * time.Millisecond,
+				5 * time.Millisecond,
+				7 * time.Millisecond,
+				3 * time.Millisecond,
 			},
 			ExpectedMean:              5.2 * 1000 * 1000,
 			ExpectedVariance:          2.2 * 1000 * 1000 * 1000 * 1000,
 			ExpectedStandardDeviation: 1.4832397 * 1000 * 1000,
+			ExpectedMin:               3 * time.Millisecond,
+			ExpectedMax:               7 * time.Millisecond,
 		},
 		{
-			Values:                    []float64{},
+			Values:                    []time.Duration{},
 			ExpectedMean:              0,
 			ExpectedVariance:          0,
 			ExpectedStandardDeviation: 0,
+			ExpectedMin:               0,
+			ExpectedMax:               0,
 		},
 		{
-			Values:                    []float64{8, 9, 10, 11, 7, 9},
+			Values:                    []time.Duration{8, 9, 10, 11, 7, 9},
 			ExpectedMean:              9,
 			ExpectedVariance:          2,
 			ExpectedStandardDeviation: 1.4142136,
+			ExpectedMin:               7,
+			ExpectedMax:               11,
 		},
 		{
-			Values:                    []float64{1, 1, 1, 1, 1, 1, 1, 1},
+			Values:                    []time.Duration{1, 1, 1, 1, 1, 1, 1, 1},
 			ExpectedMean:              1,
 			ExpectedVariance:          0,
 			ExpectedStandardDeviation: 0,
+			ExpectedMin:               1,
+			ExpectedMax:               1,
 		},
 		{
-			Values:                    []float64{1001, 1002, 1003},
+			Values:                    []time.Duration{1001, 1002, 1003},
 			ExpectedMean:              1002,
 			ExpectedVariance:          1,
 			ExpectedStandardDeviation: 1,
+			ExpectedMin:               1001,
+			ExpectedMax:               1003,
 		},
 		{
 			// https://oeis.org/A000055
-			Values: []float64{
+			Values: []time.Duration{
 				1, 1, 1, 1, 2, 3, 6, 11, 23, 47, 106, 235, 551, 1301, 3159,
 				7741, 19320, 48629, 123867, 317955, 823065, 2144505, 5623756, 14828074,
 				39299897, 104636890, 279793450, 751065460, 2023443032, 5469566585,
@@ -76,9 +87,11 @@ func TestStats(t *testing.T) {
 			ExpectedMean:              264510990000,
 			ExpectedVariance:          11688720e+17,
 			ExpectedStandardDeviation: 1081144100000,
+			ExpectedMin:               1,
+			ExpectedMax:               6226306037178,
 		},
 		{
-			Values: []float64{
+			Values: []time.Duration{
 				1, -4, -4, -4, 2, 3, 6, -41, 23, 47, -406, 235, 551, -4301, 3159,
 				7741, -49320, 48629, -423867, 317955, 823065, 2144505, 5623756, -44828074,
 				39299897, -404636890, 279793450, 751065460, 2023443032, 5469566585,
@@ -88,6 +101,8 @@ func TestStats(t *testing.T) {
 			ExpectedMean:              -208404120000,
 			ExpectedVariance:          12004762e+17,
 			ExpectedStandardDeviation: 1095662500000,
+			ExpectedMin:               -6226306037178,
+			ExpectedMax:               823779631721,
 		},
 	}
 	for i, test := range testCases {
@@ -105,6 +120,10 @@ func TestStats(t *testing.T) {
 			assertFloatEqual(t, test.ExpectedVariance, asSingles.Variance, 7, "asSingles Variance")
 			assertFloatEqual(t, test.ExpectedStandardDeviation, asSlice.StandardDeviation, 5, "asSlice StandardDeviation")
 			assertFloatEqual(t, test.ExpectedStandardDeviation, asSingles.StandardDeviation, 5, "asSingles StandardDeviation")
+			assert.Equal(t, test.ExpectedMax, asSlice.Max, "asSlice Max")
+			assert.Equal(t, test.ExpectedMax, asSingles.Max, "asSingles Max")
+			assert.Equal(t, test.ExpectedMin, asSlice.Min, "asSlice Min")
+			assert.Equal(t, test.ExpectedMin, asSingles.Min, "asSingles Min")
 			assert.Equal(t, uint(len(test.Values)), asSlice.GoodCount, "asSlice Count")
 			assert.Equal(t, uint(len(test.Values)), asSingles.GoodCount, "asSingles Count")
 		})
@@ -146,6 +165,7 @@ type DataTestCase struct {
 	ExpectedGraphSpan  graph.TimeSpan
 	ExpectedGraphStats graph.Stats
 	ExpectedPacketLoss float64
+	ExpectedTotalCount int
 	BlockTest          *BlockTest
 }
 
@@ -174,6 +194,7 @@ func TestData(t *testing.T) {
 				Variance:          2_200_000_000_000, // Variance isn't squared so it gets real big
 				StandardDeviation: asFloat64(1.4832397, time.Millisecond),
 			},
+			ExpectedTotalCount: 5,
 		},
 		{
 			Values: []ping.PingResults{
@@ -220,6 +241,7 @@ func TestData(t *testing.T) {
 				}},
 				CheckRaw: false,
 			},
+			ExpectedTotalCount: 10,
 		},
 		{
 			Values: []ping.PingResults{
@@ -240,6 +262,7 @@ func TestData(t *testing.T) {
 				StandardDeviation: asFloat64(1.7078251, time.Millisecond),
 			},
 			ExpectedPacketLoss: 1.0 / 5.0,
+			ExpectedTotalCount: 5,
 		},
 	}
 
@@ -279,7 +302,6 @@ func blockVerify(t *testing.T, graphData *graph.Data, test DataTestCase) {
 	}
 }
 
-//nolint:unparam
 func asFloat64(scalar float64, t time.Duration) float64 {
 	return scalar * float64(t)
 }
