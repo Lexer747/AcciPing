@@ -149,52 +149,62 @@ func (f frame) Match(s terminal.Size) bool {
 	return f.xAxis.size == s.Width && f.yAxis.size == s.Height
 }
 
-var point = ansi.LightGray(typography.Diamond)
-
 func gradientString(gradient float64, info *Header) string {
 	normalized := numeric.Normalize(gradient, info.MinGradient, info.MaxGradient)
 	return typography.Gradient(normalized)
 }
 
 func translate(s terminal.Size, p ping.PingResults, info *Header) (row, column int) {
-	timestamp := info.Span.End.Sub(p.Timestamp)
-	column = int(numeric.NormalizeToRange(
+	// Ok something is off here, we are using the column for a width based re-scaling and the row for height
+	// based re-scaling. This is essentially mirrored about both axis compared to my mental model 🤔.
+	column = getColumn(p.Timestamp, info, s)
+	row = int(numeric.NormalizeToRange(
+		float64(p.Duration),
+		float64(info.Stats.Min),
+		float64(info.Stats.Max),
+		float64(s.Height-1),
+		2,
+	))
+	return
+}
+
+func getColumn(t time.Time, info *Header, s terminal.Size) int {
+	timestamp := info.Span.End.Sub(t)
+	return int(numeric.NormalizeToRange(
 		float64(timestamp),
 		0,
 		float64(info.Span.Duration),
 		float64(s.Width-1),
 		13,
 	))
-	row = int(numeric.NormalizeToRange(
-		float64(p.Duration),
-		float64(info.Stats.Min),
-		float64(info.Stats.Max),
-		2,
-		float64(s.Height-1),
-	))
-	// fmt.Printf("START %s | %s | row %d (%+v, %+v, %+v, %+v, %+v) | column %d (%+v, %+v, %+v, %+v, %+v) END ",
-	// 	s.String(), p.String(),
-	// 	row, timestamp, 0, info.Span.Duration, 1, s.Width,
-	// 	column, p.Duration, info.Stats.Min, info.Stats.Max, 1, s.Height,
-	// )
-	return
 }
 
+var plain = ansi.LightGray(typography.Diamond)
+
 func computeInnerFrame(s terminal.Size, d *Data) string {
-	centreRow := s.Width / 2
-	centreColumn := s.Height / 2
+	centreRow := s.Height / 2
+	centreColumn := s.Width / 2
 	if d.TotalCount <= 1 {
-		return ansi.CursorPosition(centreRow, centreColumn) + point
+		return ansi.CursorPosition(centreRow, centreColumn) + plain + " " + d.Blocks[0].Raw[0].Duration.String()
 	}
 	ret := ""
 	for _, block := range d.Blocks {
 		for _, p := range block.Raw {
-			if p.Error != nil {
+			if p.Dropped() {
 				// dropped packet
-				panic("implement dropped packets graphing")
+				column := getColumn(p.Timestamp, d.Header, s)
+				drop := ansi.Red(typography.MediumBlock)
+				ret += ansi.CursorPosition(2, column) + strings.Repeat(drop+ansi.CursorDown(1)+ansi.CursorBack(1), s.Height-1)
 			} else {
 				row, column := translate(s, p, d.Header)
-				ret += ansi.CursorPosition(row, column) + point
+				switch {
+				case p.Duration == d.Stats.Min:
+					ret += ansi.CursorPosition(row, column) + ansi.Green(typography.Diamond+" "+p.Duration.String())
+				case p.Duration == d.Stats.Max:
+					ret += ansi.CursorPosition(row, column) + ansi.Red(typography.Diamond+" "+p.Duration.String())
+				default:
+					ret += ansi.CursorPosition(row, column) + plain
+				}
 			}
 		}
 	}
@@ -216,13 +226,14 @@ func computeYAxis(size terminal.Size, stats *Stats, url string) yAxis {
 	} else if size.Height < 12 {
 		gapSize--
 	}
-	durationGap := (stats.Max - stats.Min) / time.Duration(size.Height/gapSize)
+
 	for i := range size.Height - 2 {
 		h := i + 2
 		fmt.Fprint(&b, ansi.CursorPosition(h, 1))
 		if i%gapSize == 1 {
 			// TODO shorten these when low width terminal
-			toPrint := stats.Max - (durationGap * time.Duration(i))
+			scaledDuration := numeric.NormalizeToRange(float64(i), float64(size.Height-2), 0, float64(stats.Min), float64(stats.Max))
+			toPrint := time.Duration(scaledDuration)
 			fmt.Fprint(&b, ansi.Yellow(toPrint.String()))
 		} else {
 			fmt.Fprint(&b, ansi.White(typography.Vertical))

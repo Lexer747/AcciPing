@@ -12,10 +12,11 @@ import (
 	"time"
 
 	"github.com/Lexer747/AcciPing/utils/numeric"
-	"github.com/Lexer747/AcciPing/utils/test_helpers"
+	"github.com/Lexer747/AcciPing/utils/th"
 )
 
 func TestNormalize(t *testing.T) {
+	t.Parallel()
 	type Case struct {
 		Min, Max       float64
 		NewMin, NewMax float64
@@ -49,7 +50,7 @@ func TestNormalize(t *testing.T) {
 			t.Parallel()
 			for i, input := range test.Inputs {
 				actual := numeric.NormalizeToRange(input, test.Min, test.Max, test.NewMin, test.NewMax)
-				test_helpers.AssertFloatEqual(t, test.Expected[i], actual, 3)
+				th.AssertFloatEqual(t, test.Expected[i], actual, 3)
 			}
 		})
 	}

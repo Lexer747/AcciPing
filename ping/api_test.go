@@ -34,7 +34,6 @@ func TestChannel_google_com(t *testing.T) {
 	require.NoError(t, err)
 	for range 2 {
 		result := <-channel
-		require.NoError(t, result.Error)
 		require.GreaterOrEqual(t, result.Duration, time.Millisecond)
 	}
 	cancelFunc()

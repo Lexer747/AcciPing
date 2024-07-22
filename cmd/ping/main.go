@@ -22,18 +22,11 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("Beginning pinging to %q at %q\n", google, p.IPString)
-	for range 4 {
+	const count = 1000
+	fmt.Printf("Pinging to %q (%d times) at %q\n", google, count, p.LastIP())
+	for range count {
 		result := <-channel
-		if result.Error == nil {
-			fmt.Printf("Duration: %s | Timestamp %s\n", result.Duration, result.Timestamp.Format("15:04:05.999"))
-		} else {
-			if result.Duration != 0 {
-				fmt.Printf("Failed '%v' | Duration: %s\n", result.Error, result.Duration)
-			} else {
-				fmt.Printf("Failed '%v'\n", result.Error)
-			}
-		}
+		fmt.Println(result.String())
 	}
 	cancelFunc()
 }

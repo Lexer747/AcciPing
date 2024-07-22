@@ -17,16 +17,16 @@ import (
 )
 
 func main() {
-	const demoUrl = "www.google.com"
+	const demoURL = "www.google.com"
 	p := ping.NewPing()
 	ctx, cancelFunc := context.WithCancelCause(context.Background())
 	defer cancelFunc(nil)
 	pingsPerMinute := 15.0
-	channel, err := p.CreateChannel(ctx, demoUrl, pingsPerMinute, 10)
+	channel, err := p.CreateChannel(ctx, demoURL, pingsPerMinute, 10)
 	if err != nil {
 		panic(err.Error())
 	}
-	g, err := graph.NewGraph(ctx, channel, pingsPerMinute, demoUrl)
+	g, err := graph.NewGraph(ctx, channel, pingsPerMinute, demoURL)
 	if err != nil {
 		panic(err.Error())
 	}

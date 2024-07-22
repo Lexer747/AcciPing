@@ -14,7 +14,7 @@ import (
 	"github.com/Lexer747/AcciPing/graph"
 	"github.com/Lexer747/AcciPing/ping"
 	"github.com/Lexer747/AcciPing/utils/errors"
-	"github.com/Lexer747/AcciPing/utils/test_helpers"
+	"github.com/Lexer747/AcciPing/utils/th"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -114,12 +114,12 @@ func TestStats(t *testing.T) {
 			for _, p := range test.Values {
 				asSingles.AddPoint(p)
 			}
-			test_helpers.AssertFloatEqual(t, test.ExpectedMean, asSlice.Mean, 7, "asSlice Mean")
-			test_helpers.AssertFloatEqual(t, test.ExpectedMean, asSingles.Mean, 7, "asSingles Mean")
-			test_helpers.AssertFloatEqual(t, test.ExpectedVariance, asSlice.Variance, 7, "asSlice Variance")
-			test_helpers.AssertFloatEqual(t, test.ExpectedVariance, asSingles.Variance, 7, "asSingles Variance")
-			test_helpers.AssertFloatEqual(t, test.ExpectedStandardDeviation, asSlice.StandardDeviation, 5, "asSlice StandardDeviation")
-			test_helpers.AssertFloatEqual(t, test.ExpectedStandardDeviation, asSingles.StandardDeviation, 5, "asSingles StandardDeviation")
+			th.AssertFloatEqual(t, test.ExpectedMean, asSlice.Mean, 7, "asSlice Mean")
+			th.AssertFloatEqual(t, test.ExpectedMean, asSingles.Mean, 7, "asSingles Mean")
+			th.AssertFloatEqual(t, test.ExpectedVariance, asSlice.Variance, 7, "asSlice Variance")
+			th.AssertFloatEqual(t, test.ExpectedVariance, asSingles.Variance, 7, "asSingles Variance")
+			th.AssertFloatEqual(t, test.ExpectedStandardDeviation, asSlice.StandardDeviation, 5, "asSlice StandardDeviation")
+			th.AssertFloatEqual(t, test.ExpectedStandardDeviation, asSingles.StandardDeviation, 5, "asSingles StandardDeviation")
 			assert.Equal(t, test.ExpectedMax, asSlice.Max, "asSlice Max")
 			assert.Equal(t, test.ExpectedMax, asSingles.Max, "asSingles Max")
 			assert.Equal(t, test.ExpectedMin, asSlice.Min, "asSlice Min")
@@ -132,9 +132,9 @@ func TestStats(t *testing.T) {
 
 func assertStatsEqual(t *testing.T, expected graph.Stats, actual graph.Stats, sigFigs int, msgAndArgs ...interface{}) {
 	t.Helper()
-	test_helpers.AssertFloatEqual(t, expected.Mean, actual.Mean, sigFigs, msgAndArgs...)
-	test_helpers.AssertFloatEqual(t, expected.Variance, actual.Variance, sigFigs, msgAndArgs...)
-	test_helpers.AssertFloatEqual(t, expected.StandardDeviation, actual.StandardDeviation, sigFigs, msgAndArgs...)
+	th.AssertFloatEqual(t, expected.Mean, actual.Mean, sigFigs, msgAndArgs...)
+	th.AssertFloatEqual(t, expected.Variance, actual.Variance, sigFigs, msgAndArgs...)
+	th.AssertFloatEqual(t, expected.StandardDeviation, actual.StandardDeviation, sigFigs, msgAndArgs...)
 	if expected.GoodCount != 0 {
 		assert.Equal(t, expected.GoodCount, actual.GoodCount, msgAndArgs...)
 	}
@@ -266,7 +266,7 @@ func TestData(t *testing.T) {
 			Values: []ping.PingResults{
 				{Duration: 15 * time.Millisecond, Timestamp: origin},
 				{Duration: 16 * time.Millisecond, Timestamp: origin.Add(10 * time.Minute)},
-				{Error: errors.New("oh noes"), Timestamp: origin.Add(20 * time.Minute)},
+				ping.NewTestPingResult(errors.Errorf("oh noes"), origin.Add(20*time.Minute)),
 				{Duration: 17 * time.Millisecond, Timestamp: origin.Add(30 * time.Minute)},
 				{Duration: 13 * time.Millisecond, Timestamp: origin.Add(40 * time.Minute)},
 			},
@@ -297,7 +297,7 @@ func TestData(t *testing.T) {
 			}
 			assertStatsEqual(t, test.ExpectedGraphStats, *graphData.Header.Stats, 3, "global graph header")
 			assertTimeSpanEqual(t, test.ExpectedGraphSpan, *graphData.Header.Span, "global graph header")
-			test_helpers.AssertFloatEqual(t, test.ExpectedPacketLoss, graphData.Header.Stats.PacketLoss(), 5, "global packet loss percent")
+			th.AssertFloatEqual(t, test.ExpectedPacketLoss, graphData.Header.Stats.PacketLoss(), 5, "global packet loss percent")
 			if test.BlockTest != nil {
 				blockVerify(t, graphData, test)
 			}
@@ -326,12 +326,12 @@ func blockVerify(t *testing.T, graphData *graph.Data, test DataTestCase) {
 				expected := expectedBlock.Gradients[gradientIndex]
 				expectedMin = min(expectedMin, expected)
 				expectedMax = max(expectedMax, expected)
-				test_helpers.AssertFloatEqual(t, expected, datum, 6, "gradient inside block %d at index %d", i, gradientIndex)
+				th.AssertFloatEqual(t, expected, datum, 6, "gradient inside block %d at index %d", i, gradientIndex)
 			}
-			test_helpers.AssertFloatEqual(t, expectedMin, block.MinGradient, 4, "min gradient for block %d", i)
-			test_helpers.AssertFloatEqual(t, expectedMax, block.MaxGradient, 4, "max gradient for block %d", i)
+			th.AssertFloatEqual(t, expectedMin, block.MinGradient, 4, "min gradient for block %d", i)
+			th.AssertFloatEqual(t, expectedMax, block.MaxGradient, 4, "max gradient for block %d", i)
 			if i > 0 {
-				test_helpers.AssertFloatEqual(t, test.BlockTest.ExpectedGradients[i-1], graphData.BetweenBlockGradients[i-1], 6,
+				th.AssertFloatEqual(t, test.BlockTest.ExpectedGradients[i-1], graphData.BetweenBlockGradients[i-1], 6,
 					"gradient between blocks %d and %d", i-1, i)
 			}
 		}

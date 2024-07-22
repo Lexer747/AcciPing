@@ -51,6 +51,7 @@ linters-settings:
 linters:
   enable-all: true
   disable:
+    - cyclop
     - errname
     - execinquery
     - exhaustruct

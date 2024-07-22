@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Lexer747/AcciPing/graph/terminal"
+	"github.com/Lexer747/AcciPing/graph/terminal/ansi"
 	"github.com/Lexer747/AcciPing/utils/errors"
 	"github.com/stretchr/testify/require"
 )
@@ -30,7 +31,7 @@ func TestTerminalWrite(t *testing.T) {
 	require.NoError(t, err)
 	const hello = "Hello world"
 	term.Print(hello)
-	require.Equal(t, hello, stdout.readString(t))
+	require.Equal(t, ansi.HideCursor+hello, stdout.readString(t))
 }
 
 func TestTerminalReading(t *testing.T) {
@@ -72,6 +73,7 @@ func TestTerminalListener(t *testing.T) {
 	}
 	_, err = term.StartRaw(ctx, cancelFunc, testListener)
 	require.NoError(t, err)
+	_ = stdout.readString(t)
 	_, _ = stdin.Write([]byte("a"))
 	a := stdout.readString(t)
 	require.Equal(t, "a", a)

@@ -103,10 +103,10 @@ func (h *Header) AddPoint(p ping.PingResults) {
 	} else {
 		h.Span.AddTimestamp(p.Timestamp)
 	}
-	if p.Error == nil {
-		h.Stats.AddPoint(p.Duration)
-	} else {
+	if p.Dropped() {
 		h.Stats.AddDroppedPacket()
+	} else {
+		h.Stats.AddPoint(p.Duration)
 	}
 }
 
@@ -118,11 +118,7 @@ type Block struct {
 
 func (b *Block) AddPoint(p ping.PingResults) {
 	b.Header.AddPoint(p)
-	b.Raw = append(b.Raw, ping.PingResults{
-		Duration:  p.Duration,
-		Timestamp: p.Timestamp,
-		Error:     p.Error,
-	})
+	b.Raw = append(b.Raw, p)
 	if b.Header.Stats.GoodCount > 1 {
 		last := b.Raw[len(b.Raw)-2]
 		grad := gradient(last, p)
@@ -257,7 +253,7 @@ func (s Stats) superShortString() string {
 		stringFloatTime(numeric.RoundToNearestSigFig(s.Mean, 4)),
 		stringFloatTime(numeric.RoundToNearestSigFig(s.StandardDeviation, 4)))
 	if s.PacketsDropped > 0 {
-		fmt.Fprintf(&b, " | %.1f%%", numeric.RoundToNearestSigFig(s.PacketLoss(), 4))
+		fmt.Fprintf(&b, " | %.1f%%", numeric.RoundToNearestSigFig(s.PacketLoss(), 4)*100)
 	}
 	fmt.Fprintf(&b, " | Count %d", s.PacketsDropped+s.GoodCount)
 	return b.String()
@@ -268,7 +264,7 @@ func (s Stats) shortString() string {
 	fmt.Fprintf(&b, "\u03BC %s | \u03C3 %s",
 		stringFloatTime(s.Mean), stringFloatTime(s.StandardDeviation))
 	if s.PacketsDropped > 0 {
-		fmt.Fprintf(&b, " | Loss %.1f%%", numeric.RoundToNearestSigFig(s.PacketLoss(), 4))
+		fmt.Fprintf(&b, " | Loss %.1f%%", numeric.RoundToNearestSigFig(s.PacketLoss(), 4)*100)
 	}
 	fmt.Fprintf(&b, " | Packet Count %d", s.PacketsDropped+s.GoodCount)
 	return b.String()
@@ -279,7 +275,7 @@ func (s Stats) mediumString() string {
 	fmt.Fprintf(&b, "Average \u03BC %s | SD \u03C3 %s",
 		stringFloatTime(s.Mean), stringFloatTime(s.StandardDeviation))
 	if s.PacketsDropped > 0 {
-		fmt.Fprintf(&b, " | PacketLoss %.1f%%", numeric.RoundToNearestSigFig(s.PacketLoss(), 4))
+		fmt.Fprintf(&b, " | PacketLoss %.1f%%", numeric.RoundToNearestSigFig(s.PacketLoss(), 4)*100)
 	}
 	fmt.Fprintf(&b, " | Packet Count %d", s.PacketsDropped+s.GoodCount)
 	return b.String()
@@ -289,7 +285,7 @@ func (s Stats) longString() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Average \u03BC %s | SD \u03C3 %s",
 		stringFloatTime(s.Mean), stringFloatTime(s.StandardDeviation))
-	fmt.Fprintf(&b, " | PacketLoss %.1f%% | Dropped %d", numeric.RoundToNearestSigFig(s.PacketLoss(), 4), s.PacketsDropped)
+	fmt.Fprintf(&b, " | PacketLoss %.1f%% | Dropped %d", numeric.RoundToNearestSigFig(s.PacketLoss(), 4)*100, s.PacketsDropped)
 	fmt.Fprintf(&b, " | Good Packets %d | Packet Count %d", s.GoodCount, s.PacketsDropped+s.GoodCount)
 	return b.String()
 }
