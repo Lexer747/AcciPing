@@ -144,10 +144,11 @@ func (p *Ping) CreateChannel(ctx context.Context, url string, pingsPerMinute flo
 		buffer := make([]byte, 255)
 		var errorDuringLoop bool
 		for {
+			timestamp := time.Now()
 			if p.addresses == nil {
 				p.addresses, err = IPv4DNSQuery(url)
 				if err != nil {
-					client <- packetLoss(time.Now(), err)
+					client <- packetLoss(timestamp, err)
 					<-rateLimit.C
 					continue // Try again
 				}
@@ -168,7 +169,7 @@ func (p *Ping) CreateChannel(ctx context.Context, url string, pingsPerMinute flo
 				continue
 			}
 
-			if seq, errorDuringLoop = p.pingOnChannel(ctx, ip, seq, client, buffer); errorDuringLoop {
+			if seq, errorDuringLoop = p.pingOnChannel(ctx, timestamp, ip, seq, client, buffer); errorDuringLoop {
 				// Keep track of this address as maybe being unreliable
 				p.addresses.Dropped()
 			}
@@ -291,6 +292,7 @@ func goodPacket(Duration time.Duration, Timestamp time.Time) PingResults {
 // too recently compared to the desired rate.
 func (p *Ping) pingOnChannel(
 	ctx context.Context,
+	timestamp time.Time,
 	selectedIP net.IP,
 	seq uint16,
 	client chan PingResults,
@@ -299,13 +301,13 @@ func (p *Ping) pingOnChannel(
 	// Can gain some speed here by not remaking this each time, only to change the sequence number.
 	raw, err := p.makeOutgoingPacket(seq)
 	if err != nil {
-		client <- packetLoss(time.Now(), err)
+		client <- packetLoss(timestamp, err)
 		return seq, true
 	}
 
 	// Actually write the echo request onto the connection:
 	if err = p.writeEcho(selectedIP, raw); err != nil {
-		client <- packetLoss(time.Now(), err)
+		client <- packetLoss(timestamp, err)
 		return seq, true
 	}
 	begin := time.Now()
@@ -313,12 +315,12 @@ func (p *Ping) pingOnChannel(
 	n, err := p.pingRead(timeoutCtx, buffer)
 	duration := time.Since(begin)
 	if err != nil {
-		client <- packetLoss(time.Now(), errors.Wrapf(err, "couldn't read packet from %q", p.currentURL))
+		client <- packetLoss(timestamp, errors.Wrapf(err, "couldn't read packet from %q", p.currentURL))
 		return seq, true
 	}
 	received, err := icmp.ParseMessage(protocolICMP, buffer[:n])
 	if err != nil {
-		client <- packetLoss(begin, errors.Wrapf(err, "couldn't parse raw packet from %q, %+v", p.currentURL, received))
+		client <- packetLoss(timestamp, errors.Wrapf(err, "couldn't parse raw packet from %q, %+v", p.currentURL, received))
 		return seq, true
 	}
 	switch received.Type {
@@ -326,10 +328,10 @@ func (p *Ping) pingOnChannel(
 		// Clear the buffer for next packet
 		bytes.Clear(buffer, n)
 		seq++ // Deliberate wrap-around
-		client <- goodPacket(duration, begin)
+		client <- goodPacket(duration, timestamp)
 		return seq, false
 	default:
-		client <- packetLoss(begin, errors.Errorf("Didn't receive a good message back from %q, got Code: %d", p.currentURL, received.Code))
+		client <- packetLoss(timestamp, errors.Errorf("Didn't receive a good message back from %q, got Code: %d", p.currentURL, received.Code))
 		return seq, true
 	}
 }

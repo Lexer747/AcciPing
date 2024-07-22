@@ -4,14 +4,14 @@
 //
 // SPDX-License-Identifier: GPL-2.0-only
 
-package graph_test
+package data_test
 
 import (
 	"fmt"
 	"testing"
 	"time"
 
-	"github.com/Lexer747/AcciPing/graph"
+	"github.com/Lexer747/AcciPing/graph/data"
 	"github.com/Lexer747/AcciPing/ping"
 	"github.com/Lexer747/AcciPing/utils/errors"
 	"github.com/Lexer747/AcciPing/utils/th"
@@ -108,9 +108,9 @@ func TestStats(t *testing.T) {
 	for i, test := range testCases {
 		t.Run(fmt.Sprintf("%d:%+v", i, test.Values), func(t *testing.T) {
 			t.Parallel()
-			asSlice := graph.Stats{}
+			asSlice := data.Stats{}
 			asSlice.AddPoints(test.Values)
-			asSingles := graph.Stats{}
+			asSingles := data.Stats{}
 			for _, p := range test.Values {
 				asSingles.AddPoint(p)
 			}
@@ -130,7 +130,7 @@ func TestStats(t *testing.T) {
 	}
 }
 
-func assertStatsEqual(t *testing.T, expected graph.Stats, actual graph.Stats, sigFigs int, msgAndArgs ...interface{}) {
+func assertStatsEqual(t *testing.T, expected data.Stats, actual data.Stats, sigFigs int, msgAndArgs ...interface{}) {
 	t.Helper()
 	th.AssertFloatEqual(t, expected.Mean, actual.Mean, sigFigs, msgAndArgs...)
 	th.AssertFloatEqual(t, expected.Variance, actual.Variance, sigFigs, msgAndArgs...)
@@ -140,7 +140,7 @@ func assertStatsEqual(t *testing.T, expected graph.Stats, actual graph.Stats, si
 	}
 }
 
-func assertTimeSpanEqual(t *testing.T, expected graph.TimeSpan, actual graph.TimeSpan, msgAndArgs ...interface{}) {
+func assertTimeSpanEqual(t *testing.T, expected data.TimeSpan, actual data.TimeSpan, msgAndArgs ...interface{}) {
 	t.Helper()
 	assert.Equal(t, expected.Begin, actual.Begin, msgAndArgs...)
 	assert.Equal(t, expected.End, actual.End, msgAndArgs...)
@@ -148,7 +148,7 @@ func assertTimeSpanEqual(t *testing.T, expected graph.TimeSpan, actual graph.Tim
 }
 
 type BlockTest struct {
-	ExpectedBlocks    []graph.Block
+	ExpectedBlocks    []data.Block
 	ExpectedGradients []float64
 	CheckGradient     bool
 	CheckRaw          bool
@@ -157,8 +157,8 @@ type BlockTest struct {
 type DataTestCase struct {
 	Values             []ping.PingResults
 	BlockSize          int
-	ExpectedGraphSpan  graph.TimeSpan
-	ExpectedGraphStats graph.Stats
+	ExpectedGraphSpan  data.TimeSpan
+	ExpectedGraphStats data.Stats
 	ExpectedPacketLoss float64
 	ExpectedTotalCount int
 	BlockTest          *BlockTest
@@ -178,12 +178,12 @@ func TestData(t *testing.T) {
 				{Duration: 7 * time.Millisecond, Timestamp: origin.Add(3 * time.Minute)},
 				{Duration: 3 * time.Millisecond, Timestamp: origin.Add(4 * time.Minute)},
 			},
-			ExpectedGraphSpan: graph.TimeSpan{
+			ExpectedGraphSpan: data.TimeSpan{
 				Begin:    origin,
 				End:      origin.Add(4 * time.Minute),
 				Duration: 4 * time.Minute,
 			},
-			ExpectedGraphStats: graph.Stats{
+			ExpectedGraphStats: data.Stats{
 				Mean:              asFloat64(5.2, time.Millisecond),
 				GoodCount:         5,
 				Variance:          2_200_000_000_000, // Variance isn't squared so it gets real big
@@ -205,12 +205,12 @@ func TestData(t *testing.T) {
 				{Duration: 3 * time.Nanosecond, Timestamp: origin.Add(9 * time.Nanosecond)},
 			},
 			BlockSize: 5,
-			ExpectedGraphSpan: graph.TimeSpan{
+			ExpectedGraphSpan: data.TimeSpan{
 				Begin:    origin,
 				End:      origin.Add(9 * time.Nanosecond),
 				Duration: 9 * time.Nanosecond,
 			},
-			ExpectedGraphStats: graph.Stats{
+			ExpectedGraphStats: data.Stats{
 				Mean:              asFloat64(5.2, time.Nanosecond),
 				GoodCount:         10,
 				Variance:          1.955,
@@ -219,15 +219,15 @@ func TestData(t *testing.T) {
 			BlockTest: &BlockTest{
 				// This test has enough data to split the storage over multiple blocks, the blocks are
 				// near identical except timestamps.
-				ExpectedBlocks: []graph.Block{{
-					Header: &graph.Header{
-						Stats: &graph.Stats{
+				ExpectedBlocks: []data.Block{{
+					Header: &data.Header{
+						Stats: &data.Stats{
 							Mean:              asFloat64(5.2, time.Nanosecond),
 							GoodCount:         5,
 							Variance:          2.2,
 							StandardDeviation: asFloat64(1.4832397, time.Nanosecond),
 						},
-						Span: &graph.TimeSpan{Begin: origin, End: origin.Add(4 * time.Nanosecond), Duration: 4 * time.Nanosecond},
+						Span: &data.TimeSpan{Begin: origin, End: origin.Add(4 * time.Nanosecond), Duration: 4 * time.Nanosecond},
 					},
 					Gradients: []float64{
 						(6.0 - 5.0) / 1.0,
@@ -236,14 +236,14 @@ func TestData(t *testing.T) {
 						(3.0 - 7.0) / 1.0,
 					},
 				}, {
-					Header: &graph.Header{
-						Stats: &graph.Stats{
+					Header: &data.Header{
+						Stats: &data.Stats{
 							Mean:              asFloat64(5.2, time.Nanosecond),
 							GoodCount:         5,
 							Variance:          2.2,
 							StandardDeviation: asFloat64(1.4832397, time.Nanosecond),
 						},
-						Span: &graph.TimeSpan{
+						Span: &data.TimeSpan{
 							Begin:    origin.Add(5 * time.Nanosecond),
 							End:      origin.Add(9 * time.Nanosecond),
 							Duration: 4 * time.Nanosecond,
@@ -270,12 +270,12 @@ func TestData(t *testing.T) {
 				{Duration: 17 * time.Millisecond, Timestamp: origin.Add(30 * time.Minute)},
 				{Duration: 13 * time.Millisecond, Timestamp: origin.Add(40 * time.Minute)},
 			},
-			ExpectedGraphSpan: graph.TimeSpan{
+			ExpectedGraphSpan: data.TimeSpan{
 				Begin:    origin,
 				End:      origin.Add(40 * time.Minute),
 				Duration: 40 * time.Minute,
 			},
-			ExpectedGraphStats: graph.Stats{
+			ExpectedGraphStats: data.Stats{
 				Mean:              asFloat64(15.25, time.Millisecond),
 				Variance:          2_916_666_700_000,
 				StandardDeviation: asFloat64(1.7078251, time.Millisecond),
@@ -288,9 +288,9 @@ func TestData(t *testing.T) {
 	for i, test := range testCases {
 		t.Run(fmt.Sprintf("%d:%+v", i, test.Values), func(t *testing.T) {
 			t.Parallel()
-			graphData := graph.NewData()
+			graphData := data.NewData()
 			if test.BlockSize != 0 {
-				graphData = graph.NewData(graph.Options{BlockSize: test.BlockSize})
+				graphData = data.NewData(data.Options{BlockSize: test.BlockSize})
 			}
 			for _, v := range test.Values {
 				graphData.AddPoint(v)
@@ -305,7 +305,7 @@ func TestData(t *testing.T) {
 	}
 }
 
-func blockVerify(t *testing.T, graphData *graph.Data, test DataTestCase) {
+func blockVerify(t *testing.T, graphData *data.Data, test DataTestCase) {
 	t.Helper()
 	require.Len(t, graphData.Blocks, len(test.BlockTest.ExpectedBlocks))
 	for i, block := range graphData.Blocks {

@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Lexer747/AcciPing/graph/data"
 	"github.com/Lexer747/AcciPing/graph/terminal"
 	"github.com/Lexer747/AcciPing/graph/terminal/ansi"
 	"github.com/Lexer747/AcciPing/graph/terminal/typography"
@@ -23,7 +24,7 @@ import (
 
 type Graph struct {
 	Term        *terminal.Terminal
-	data        *Data
+	data        *data.Data
 	dataMutex   *sync.Mutex
 	dataChannel chan ping.PingResults
 
@@ -41,7 +42,7 @@ func NewGraph(ctx context.Context, input chan ping.PingResults, pingsPerMinute f
 	}
 	g := &Graph{
 		Term:           t,
-		data:           NewData(),
+		data:           data.NewData(),
 		dataMutex:      &sync.Mutex{},
 		dataChannel:    input,
 		url:            url,
@@ -52,12 +53,8 @@ func NewGraph(ctx context.Context, input chan ping.PingResults, pingsPerMinute f
 }
 
 func (g *Graph) Run(ctx context.Context, stop context.CancelCauseFunc, fps int) error {
-	var frameRate *time.Ticker
-	if fps == 0 {
-		frameRate = time.NewTicker(ping.PingsPerMinuteToDuration(g.pingsPerMinute))
-	} else {
-		frameRate = time.NewTicker(time.Duration(1000/fps) * time.Millisecond)
-	}
+	timeBetweenFrames := getTimeBetweenFrames(fps, g.pingsPerMinute)
+	frameRate := time.NewTicker(timeBetweenFrames)
 	cleanup, err := g.Term.StartRaw(ctx, stop) // TODO add UI listeners, zooming, changing ping speed - etc
 	defer cleanup()
 	if err != nil {
@@ -67,7 +64,7 @@ func (g *Graph) Run(ctx context.Context, stop context.CancelCauseFunc, fps int) 
 		if err = g.Term.UpdateCurrentTerminalSize(); err != nil {
 			return err
 		}
-		toWrite := g.computeFrame()
+		toWrite := g.computeFrame(timeBetweenFrames)
 		// Currently no strong opinions on dropped frames this is fine
 		<-frameRate.C
 		g.Term.Print(toWrite)
@@ -79,6 +76,14 @@ func (g *Graph) Run(ctx context.Context, stop context.CancelCauseFunc, fps int) 
 	}
 }
 
+func getTimeBetweenFrames(fps int, pingsPerMinute float64) time.Duration {
+	if fps == 0 {
+		return ping.PingsPerMinuteToDuration(pingsPerMinute)
+	} else {
+		return time.Duration(1000/fps) * time.Millisecond
+	}
+}
+
 func (g *Graph) Summarize() string {
 	g.dataMutex.Lock()
 	defer g.dataMutex.Unlock()
@@ -86,7 +91,7 @@ func (g *Graph) Summarize() string {
 }
 
 // TODO compute the frame into an existing buffer instead of a string API
-func (g *Graph) computeFrame() string {
+func (g *Graph) computeFrame(timeBetweenFrames time.Duration) string {
 	s := g.Term.Size() // This is race-y so ensure a consistent size for rendering
 	g.dataMutex.Lock()
 	count := g.data.TotalCount
@@ -95,7 +100,7 @@ func (g *Graph) computeFrame() string {
 		return "" // no data yet
 	}
 	g.lastFrame.spinnerIndex++
-	spinnerValue := spinner(s, g.lastFrame.spinnerIndex)
+	spinnerValue := spinner(s, g.lastFrame.spinnerIndex, timeBetweenFrames)
 	if count == g.lastFrame.PacketCount && g.lastFrame.Match(s) {
 		g.dataMutex.Unlock() // fast path the frame didn't change
 		return spinnerValue
@@ -117,10 +122,13 @@ func (g *Graph) computeFrame() string {
 	return finished
 }
 
-var spinnerArray = [...]string{typography.Vertical, typography.UpSlope, typography.Horizontal, typography.DownSlope}
+var spinnerArray = [...]string{"⏴", "⏵", "⏶", "⏷"}
 
-func spinner(s terminal.Size, i int) string {
-	return ansi.CursorPosition(2, s.Width-3) + ansi.Cyan(spinnerArray[i%len(spinnerArray)])
+func spinner(s terminal.Size, i int, timeBetweenFrames time.Duration) string {
+	// TODO refactor into a generic only paint me every X fps.
+	// We want 300ms between spinner updates
+	a := i / int(300/timeBetweenFrames.Milliseconds())
+	return ansi.CursorPosition(2, s.Width-3) + ansi.Cyan(spinnerArray[a%len(spinnerArray)])
 }
 
 func (g *Graph) sink(ctx context.Context) {
@@ -149,12 +157,12 @@ func (f frame) Match(s terminal.Size) bool {
 	return f.xAxis.size == s.Width && f.yAxis.size == s.Height
 }
 
-func gradientString(gradient float64, info *Header) string {
+func gradientString(gradient float64, info *data.Header) string {
 	normalized := numeric.Normalize(gradient, info.MinGradient, info.MaxGradient)
 	return typography.Gradient(normalized)
 }
 
-func translate(s terminal.Size, p ping.PingResults, info *Header) (row, column int) {
+func translate(s terminal.Size, p ping.PingResults, info *data.Header) (row, column int) {
 	// Ok something is off here, we are using the column for a width based re-scaling and the row for height
 	// based re-scaling. This is essentially mirrored about both axis compared to my mental model 🤔.
 	column = getColumn(p.Timestamp, info, s)
@@ -168,7 +176,7 @@ func translate(s terminal.Size, p ping.PingResults, info *Header) (row, column i
 	return
 }
 
-func getColumn(t time.Time, info *Header, s terminal.Size) int {
+func getColumn(t time.Time, info *data.Header, s terminal.Size) int {
 	timestamp := info.Span.End.Sub(t)
 	return int(numeric.NormalizeToRange(
 		float64(timestamp),
@@ -180,24 +188,32 @@ func getColumn(t time.Time, info *Header, s terminal.Size) int {
 }
 
 var plain = ansi.LightGray(typography.Diamond)
+var drop = ansi.Red(typography.Block)
 
-func computeInnerFrame(s terminal.Size, d *Data) string {
+func computeInnerFrame(s terminal.Size, d *data.Data) string {
 	centreRow := s.Height / 2
 	centreColumn := s.Width / 2
 	if d.TotalCount <= 1 {
 		return ansi.CursorPosition(centreRow, centreColumn) + plain + " " + d.Blocks[0].Raw[0].Duration.String()
 	}
 	ret := ""
+	droppedBar := ""
+	if d.Header.Stats.PacketsDropped > 0 {
+		// TODO more width when few points
+		droppedBar = strings.Repeat(drop+ansi.CursorDown(1)+ansi.CursorBack(1), s.Height-1)
+	}
+	// TODO plot gradient when few points
+
 	for _, block := range d.Blocks {
 		for _, p := range block.Raw {
 			if p.Dropped() {
 				// dropped packet
 				column := getColumn(p.Timestamp, d.Header, s)
-				drop := ansi.Red(typography.MediumBlock)
-				ret += ansi.CursorPosition(2, column) + strings.Repeat(drop+ansi.CursorDown(1)+ansi.CursorBack(1), s.Height-1)
+				ret += ansi.CursorPosition(2, column) + droppedBar
 			} else {
 				row, column := translate(s, p, d.Header)
 				switch {
+				// TODO change text justification based on the column
 				case p.Duration == d.Stats.Min:
 					ret += ansi.CursorPosition(row, column) + ansi.Green(typography.Diamond+" "+p.Duration.String())
 				case p.Duration == d.Stats.Max:
@@ -208,10 +224,11 @@ func computeInnerFrame(s terminal.Size, d *Data) string {
 			}
 		}
 	}
+
 	return ret
 }
 
-func computeYAxis(size terminal.Size, stats *Stats, url string) yAxis {
+func computeYAxis(size terminal.Size, stats *data.Stats, url string) yAxis {
 	var b strings.Builder
 	// Making of a buffer of [size] will be too small because ansi + unicode will take up more bytes than the
 	// character space they take up
@@ -246,7 +263,7 @@ func computeYAxis(size terminal.Size, stats *Stats, url string) yAxis {
 	}
 }
 
-func makeTitle(size terminal.Size, stats *Stats, url string) string {
+func makeTitle(size terminal.Size, stats *data.Stats, url string) string {
 	// TODO string builder, or larger buffer impl
 	sizeStr := size.String()
 	titleBegin := ansi.Cyan(url) + " ["
@@ -260,11 +277,11 @@ func makeTitle(size terminal.Size, stats *Stats, url string) string {
 
 type yAxis struct {
 	size  int
-	stats *Stats
+	stats *data.Stats
 	axis  string
 }
 
-func computeXAxis(size int, span *TimeSpan) xAxis {
+func computeXAxis(size int, span *data.TimeSpan) xAxis {
 	const format = "15:04:05.99"
 	const formatLen = 11
 	const spacePerItem = formatLen + 6
@@ -301,7 +318,7 @@ func computeXAxis(size int, span *TimeSpan) xAxis {
 
 type xAxis struct {
 	size     int
-	spanBase *TimeSpan
+	spanBase *data.TimeSpan
 	axis     string
 }
 

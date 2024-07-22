@@ -30,7 +30,8 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
-	err = g.Run(ctx, cancelFunc, 20)
+	// Very high FPS is good for responsiveness in the UI (since it's locked) and re-drawing on a re-size.
+	err = g.Run(ctx, cancelFunc, 60)
 	if err != nil && !errors.Is(err, terminal.UserCancelled) {
 		panic(err.Error())
 	} else {

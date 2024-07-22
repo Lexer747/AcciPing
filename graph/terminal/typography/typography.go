@@ -27,6 +27,11 @@ const (
 	LightBlock  = "\u2591"
 	MediumBlock = "\u2592"
 	DarkBlock   = "\u2593"
+
+	BottomLeftSquare  = "\u2596"
+	TopLeftSquare     = "\u2598"
+	BottomRightSquare = "\u2597"
+	TopRightSquare    = "\u259D"
 )
 
 // Gradient operates on the [0,1] range.
