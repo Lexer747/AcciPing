@@ -8,12 +8,14 @@ package data_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Lexer747/AcciPing/graph/data"
 	"github.com/Lexer747/AcciPing/ping"
 	"github.com/Lexer747/AcciPing/utils/errors"
+	"github.com/Lexer747/AcciPing/utils/sliceutils"
 	"github.com/Lexer747/AcciPing/utils/th"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -164,10 +166,11 @@ type DataTestCase struct {
 	BlockTest          *BlockTest
 }
 
+// A fixed time stamp to make all testing relative too
+var origin = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+
 func TestData(t *testing.T) {
 	t.Parallel()
-	// A fixed time stamp to make all testing relative too
-	origin := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 
 	testCases := []DataTestCase{
 		{
@@ -282,11 +285,36 @@ func TestData(t *testing.T) {
 			},
 			ExpectedPacketLoss: 1.0 / 5.0,
 			ExpectedTotalCount: 5,
+			BlockTest: &BlockTest{
+				ExpectedBlocks: []data.Block{{
+					Header: &data.Header{
+						Stats: &data.Stats{
+							Mean:              asFloat64(15.25, time.Millisecond),
+							Variance:          2_916_666_700_000,
+							StandardDeviation: asFloat64(1.7078251, time.Millisecond),
+						},
+						Span:        &data.TimeSpan{Begin: origin, End: origin.Add(40 * time.Minute), Duration: 40 * time.Minute},
+						MinGradient: 222,
+						MaxGradient: 333,
+					},
+					Gradients: []float64{
+						(16.0 - 15.0) / asFloat64(0.6, time.Millisecond),
+						(0.0 - 16.0) / asFloat64(0.6, time.Millisecond),
+						(17.0 - 0.0) / asFloat64(0.6, time.Millisecond),
+						(13.0 - 17.0) / asFloat64(0.6, time.Millisecond),
+					},
+				}},
+				ExpectedGradients: []float64{},
+				CheckGradient:     true,
+			},
 		},
 	}
 
 	for i, test := range testCases {
-		t.Run(fmt.Sprintf("%d:%+v", i, test.Values), func(t *testing.T) {
+		sliceAsStr := strings.Join(sliceutils.Map(test.Values, func(p ping.PingResults) string {
+			return p.String()
+		}), ",")
+		t.Run(fmt.Sprintf("%d:[%s]", i, sliceAsStr), func(t *testing.T) {
 			t.Parallel()
 			graphData := data.NewData()
 			if test.BlockSize != 0 {
@@ -340,4 +368,39 @@ func blockVerify(t *testing.T, graphData *data.Data, test DataTestCase) {
 
 func asFloat64(scalar float64, t time.Duration) float64 {
 	return scalar * float64(t)
+}
+
+func TestGetGradient(t *testing.T) {
+	t.Parallel()
+	graphData := data.NewData(data.Options{
+		BlockSize: 3,
+	})
+	values := []ping.PingResults{
+		{Duration: 0, Timestamp: origin.Add(0)},
+		{Duration: 1, Timestamp: origin.Add(1)},
+		{Duration: 0, Timestamp: origin.Add(2)},
+		{Duration: 1, Timestamp: origin.Add(3)},
+		{Duration: 0, Timestamp: origin.Add(4)},
+		{Duration: 1, Timestamp: origin.Add(5)},
+		{Duration: 0, Timestamp: origin.Add(6)},
+		{Duration: 1, Timestamp: origin.Add(7)},
+		{Duration: 0, Timestamp: origin.Add(8)},
+		{Duration: 1, Timestamp: origin.Add(9)},
+	}
+	for _, v := range values {
+		graphData.AddPoint(v)
+	}
+	gradient := -1.0
+	for bi, block := range graphData.Blocks {
+		for i := range block.Raw {
+			if graphData.IsLast(bi, i) {
+				break // Last item doesn't have a gradient
+			}
+			gradient = gradient * -1.0
+			actual := graphData.GetGradient(bi, i)
+			th.AssertFloatEqual(t, gradient, actual, 5, "blockIndex: %d rawIndex: %d", bi, i)
+		}
+	}
+	th.AssertFloatEqual(t, -1.0, graphData.MinGradient, 3, "min gradient")
+	th.AssertFloatEqual(t, 1.0, graphData.MaxGradient, 3, "min gradient")
 }

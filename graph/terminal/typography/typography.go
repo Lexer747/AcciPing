@@ -9,7 +9,13 @@ package typography
 const (
 	Bullet       = "\u2022"
 	HollowBullet = "\u25E6"
-	Diamond      = "\u2BC1"
+	Diamond      = "\u25C6"
+	Multiply     = "\u00D7"
+
+	DownTriangle  = "\u25BC"
+	UpTriangle    = "\u25B2"
+	LeftTriangle  = "\u25C0"
+	RightTriangle = "\u25B6"
 
 	Vertical   = "\u2502"
 	Horizontal = "\u2500"

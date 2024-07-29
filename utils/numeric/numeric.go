@@ -6,7 +6,11 @@
 
 package numeric
 
-import "math"
+import (
+	"math"
+
+	"golang.org/x/exp/constraints"
+)
 
 func RoundToNearestSigFig(input float64, sigFig int) float64 {
 	if input == 0 {
@@ -34,4 +38,15 @@ func Normalize(v, min, max float64) float64 {
 // Inspired by my original https://github.com/Lexer747/PingPlotter/blob/master/src/Graph/Internal.hs#L15
 func NormalizeToRange(v, min, max, newMin, newMax float64) float64 {
 	return (((newMax - newMin) * (v - min)) / (max - min)) + newMin
+}
+
+type Number interface {
+	constraints.Float | constraints.Signed
+}
+
+func Abs[N Number](n N) N {
+	if n < 0 {
+		return N(-1) * n
+	}
+	return n
 }

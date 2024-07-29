@@ -18,28 +18,24 @@ import (
 	"github.com/Lexer747/AcciPing/graph/terminal/ansi"
 	"github.com/Lexer747/AcciPing/graph/terminal/typography"
 	"github.com/Lexer747/AcciPing/ping"
-	"github.com/Lexer747/AcciPing/utils/errors"
 	"github.com/Lexer747/AcciPing/utils/numeric"
 )
 
 type Graph struct {
-	Term        *terminal.Terminal
-	data        *data.Data
-	dataMutex   *sync.Mutex
+	Term *terminal.Terminal
+
+	sinkAlive   bool
 	dataChannel chan ping.PingResults
 
-	url string
-
+	url            string
 	pingsPerMinute float64
 
+	data      *data.Data
+	dataMutex *sync.Mutex
 	lastFrame frame
 }
 
-func NewGraph(ctx context.Context, input chan ping.PingResults, pingsPerMinute float64, url string) (*Graph, error) {
-	t, err := terminal.NewTerminal()
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to make graph")
-	}
+func NewGraph(ctx context.Context, input chan ping.PingResults, t *terminal.Terminal, pingsPerMinute float64, url string) (*Graph, error) {
 	g := &Graph{
 		Term:           t,
 		data:           data.NewData(),
@@ -47,6 +43,7 @@ func NewGraph(ctx context.Context, input chan ping.PingResults, pingsPerMinute f
 		dataChannel:    input,
 		url:            url,
 		pingsPerMinute: pingsPerMinute,
+		sinkAlive:      true,
 	}
 	go g.sink(ctx)
 	return g, nil
@@ -64,7 +61,7 @@ func (g *Graph) Run(ctx context.Context, stop context.CancelCauseFunc, fps int) 
 		if err = g.Term.UpdateCurrentTerminalSize(); err != nil {
 			return err
 		}
-		toWrite := g.computeFrame(timeBetweenFrames)
+		toWrite := g.computeFrame(timeBetweenFrames, true)
 		// Currently no strong opinions on dropped frames this is fine
 		<-frameRate.C
 		g.Term.Print(toWrite)
@@ -76,6 +73,40 @@ func (g *Graph) Run(ctx context.Context, stop context.CancelCauseFunc, fps int) 
 	}
 }
 
+func (g *Graph) AddPoint(p ping.PingResults) {
+	g.dataMutex.Lock()
+	defer g.dataMutex.Unlock()
+	g.data.AddPoint(p)
+}
+
+func (g *Graph) LastFrame() string {
+	g.dataMutex.Lock()
+	defer g.dataMutex.Unlock()
+	return paint(
+		g.lastFrame.Size(),
+		g.lastFrame.xAxis.axis,
+		g.lastFrame.yAxis.axis,
+		g.lastFrame.insideFrame,
+		"",
+	)
+}
+func (g *Graph) ComputeFrame() string {
+	return g.computeFrame(0, false)
+}
+
+func (g *Graph) Summarize() string {
+	g.dataMutex.Lock()
+	defer g.dataMutex.Unlock()
+	raw := ""
+	for _, block := range g.data.Blocks {
+		for _, p := range block.Raw {
+			raw += p.String() + "\n"
+		}
+	}
+
+	return raw + g.data.Header.String()
+}
+
 func getTimeBetweenFrames(fps int, pingsPerMinute float64) time.Duration {
 	if fps == 0 {
 		return ping.PingsPerMinuteToDuration(pingsPerMinute)
@@ -84,14 +115,8 @@ func getTimeBetweenFrames(fps int, pingsPerMinute float64) time.Duration {
 	}
 }
 
-func (g *Graph) Summarize() string {
-	g.dataMutex.Lock()
-	defer g.dataMutex.Unlock()
-	return g.data.Header.String()
-}
-
 // TODO compute the frame into an existing buffer instead of a string API
-func (g *Graph) computeFrame(timeBetweenFrames time.Duration) string {
+func (g *Graph) computeFrame(timeBetweenFrames time.Duration, drawSpinner bool) string {
 	s := g.Term.Size() // This is race-y so ensure a consistent size for rendering
 	g.dataMutex.Lock()
 	count := g.data.TotalCount
@@ -99,8 +124,11 @@ func (g *Graph) computeFrame(timeBetweenFrames time.Duration) string {
 		g.dataMutex.Unlock()
 		return "" // no data yet
 	}
-	g.lastFrame.spinnerIndex++
-	spinnerValue := spinner(s, g.lastFrame.spinnerIndex, timeBetweenFrames)
+	spinnerValue := ""
+	if drawSpinner {
+		g.lastFrame.spinnerIndex++
+		spinnerValue = spinner(s, g.lastFrame.spinnerIndex, timeBetweenFrames)
+	}
 	if count == g.lastFrame.PacketCount && g.lastFrame.Match(s) {
 		g.dataMutex.Unlock() // fast path the frame didn't change
 		return spinnerValue
@@ -122,24 +150,34 @@ func (g *Graph) computeFrame(timeBetweenFrames time.Duration) string {
 	return finished
 }
 
-var spinnerArray = [...]string{"⏴", "⏵", "⏶", "⏷"}
+var spinnerArray = [...]string{
+	typography.LeftTriangle,
+	typography.UpTriangle,
+	typography.RightTriangle,
+	typography.DownTriangle,
+}
 
 func spinner(s terminal.Size, i int, timeBetweenFrames time.Duration) string {
 	// TODO refactor into a generic only paint me every X fps.
 	// We want 300ms between spinner updates
-	a := i / int(300/timeBetweenFrames.Milliseconds())
-	return ansi.CursorPosition(2, s.Width-3) + ansi.Cyan(spinnerArray[a%len(spinnerArray)])
+	a := i
+	x := timeBetweenFrames.Milliseconds()
+	if x != 0 && int(300/x) != 0 {
+		a = i / int(300/x)
+	}
+	return ansi.CursorPosition(1, s.Width-3) + ansi.Cyan(spinnerArray[a%len(spinnerArray)])
 }
 
 func (g *Graph) sink(ctx context.Context) {
 	for {
-		p := <-g.dataChannel
-		g.dataMutex.Lock()
-		g.data.AddPoint(p)
-		g.dataMutex.Unlock()
 		select {
 		case <-ctx.Done():
+			g.sinkAlive = false
 			return
+		case p := <-g.dataChannel:
+			g.dataMutex.Lock()
+			g.data.AddPoint(p)
+			g.dataMutex.Unlock()
 		default:
 		}
 	}
@@ -157,16 +195,18 @@ func (f frame) Match(s terminal.Size) bool {
 	return f.xAxis.size == s.Width && f.yAxis.size == s.Height
 }
 
+func (f frame) Size() terminal.Size {
+	return terminal.Size{Height: f.xAxis.size, Width: f.yAxis.size}
+}
+
 func gradientString(gradient float64, info *data.Header) string {
 	normalized := numeric.Normalize(gradient, info.MinGradient, info.MaxGradient)
 	return typography.Gradient(normalized)
 }
 
-func translate(s terminal.Size, p ping.PingResults, info *data.Header) (row, column int) {
-	// Ok something is off here, we are using the column for a width based re-scaling and the row for height
-	// based re-scaling. This is essentially mirrored about both axis compared to my mental model 🤔.
-	column = getColumn(p.Timestamp, info, s)
-	row = int(numeric.NormalizeToRange(
+func translate(s terminal.Size, p ping.PingResults, info *data.Header) (y, x int) {
+	x = getX(p.Timestamp, info, s)
+	y = int(numeric.NormalizeToRange(
 		float64(p.Duration),
 		float64(info.Stats.Min),
 		float64(info.Stats.Max),
@@ -176,7 +216,7 @@ func translate(s terminal.Size, p ping.PingResults, info *data.Header) (row, col
 	return
 }
 
-func getColumn(t time.Time, info *data.Header, s terminal.Size) int {
+func getX(t time.Time, info *data.Header, s terminal.Size) int {
 	timestamp := info.Span.End.Sub(t)
 	return int(numeric.NormalizeToRange(
 		float64(timestamp),
@@ -187,45 +227,103 @@ func getColumn(t time.Time, info *data.Header, s terminal.Size) int {
 	))
 }
 
-var plain = ansi.LightGray(typography.Diamond)
+var plain = ansi.LightGray(typography.Multiply)
 var drop = ansi.Red(typography.Block)
+var dropFiller = ansi.Red(typography.LightBlock)
 
 func computeInnerFrame(s terminal.Size, d *data.Data) string {
-	centreRow := s.Height / 2
-	centreColumn := s.Width / 2
+	centreY := s.Height / 2
+	centreX := s.Width / 2
 	if d.TotalCount <= 1 {
-		return ansi.CursorPosition(centreRow, centreColumn) + plain + " " + d.Blocks[0].Raw[0].Duration.String()
+		return ansi.CursorPosition(centreY, centreX) + plain + " " + d.Blocks[0].Raw[0].Duration.String()
 	}
 	ret := ""
 	droppedBar := ""
+	droppedFiller := ""
 	if d.Header.Stats.PacketsDropped > 0 {
-		// TODO more width when few points
 		droppedBar = strings.Repeat(drop+ansi.CursorDown(1)+ansi.CursorBack(1), s.Height-1)
+		droppedFiller = strings.Repeat(dropFiller+ansi.CursorDown(1)+ansi.CursorBack(1), s.Height-1)
 	}
-	// TODO plot gradient when few points
+	drawGradient := shouldGradient(s, d)
+	lastWasDropped := false
+	lastDroppedTerminalX := -1
+	var lastGood *ping.PingResults
+	lastGoodTerminalWidth := -1
 
-	for _, block := range d.Blocks {
-		for _, p := range block.Raw {
+	// Now iterate over all the individual data points and add them to the graph
+	for bi, block := range d.Blocks {
+		for i, p := range block.Raw {
 			if p.Dropped() {
-				// dropped packet
-				column := getColumn(p.Timestamp, d.Header, s)
-				ret += ansi.CursorPosition(2, column) + droppedBar
-			} else {
-				row, column := translate(s, p, d.Header)
-				switch {
-				// TODO change text justification based on the column
-				case p.Duration == d.Stats.Min:
-					ret += ansi.CursorPosition(row, column) + ansi.Green(typography.Diamond+" "+p.Duration.String())
-				case p.Duration == d.Stats.Max:
-					ret += ansi.CursorPosition(row, column) + ansi.Red(typography.Diamond+" "+p.Duration.String())
-				default:
-					ret += ansi.CursorPosition(row, column) + plain
+				x := getX(p.Timestamp, d.Header, s)
+				ret += ansi.CursorPosition(2, x) + droppedBar
+				if lastWasDropped {
+					for i := min(lastDroppedTerminalX, x) + 1; i < max(lastDroppedTerminalX, x); i++ {
+						ret += ansi.CursorPosition(2, i) + droppedFiller
+					}
+				}
+				lastWasDropped = true
+				lastDroppedTerminalX = x
+				lastGood = nil
+				continue
+			}
+			y, x := translate(s, p, d.Header)
+			if drawGradient && lastGood != nil && !lastWasDropped {
+				if !d.IsLast(bi, i-1) {
+					x1 := d.GetGradient(bi, i-1)
+					gradient := numeric.Normalize(x1, d.MinGradient, d.MaxGradient)
+					gradientsToDraw := float64(numeric.Abs(lastGoodTerminalWidth - x))
+					// stepSizeY := float64(p.Duration-lastGood.Duration) / gradientsToDraw
+					// stepSizeX := float64(p.Timestamp.Sub(lastGood.Timestamp)) / gradientsToDraw
+					// fmt.Printf("Drawing gradient %f, %f | %f chars | stepX %f | stepY %f",
+					// 	x1, gradient, gradientsToDraw, stepSizeX, stepSizeY)
+					for gi := 1.0; gi < gradientsToDraw-1; gi++ {
+						x1 := numeric.NormalizeToRange(gi, 0, gradientsToDraw, float64(lastGood.Duration), float64(p.Duration))
+						x2 := numeric.NormalizeToRange(gi, 0, gradientsToDraw, 0.0, float64(p.Timestamp.Sub(lastGood.Timestamp)))
+						gy, gx := translate(s, ping.PingResults{
+							Duration:  time.Duration(x1),
+							Timestamp: lastGood.Timestamp.Add(time.Duration(x2)),
+						}, d.Header)
+						ret += ansi.CursorPosition(gy, gx) + ansi.Gray(typography.Gradient(gradient))
+					}
 				}
 			}
+			ret += drawPoint(p, d, x, y, centreX)
+			lastWasDropped = false
+			lastGood = &p
+			lastGoodTerminalWidth = x
 		}
 	}
 
 	return ret
+}
+
+func drawPoint(p ping.PingResults, d *data.Data, x, y, centreX int) string {
+	leftJustify := x > centreX
+	isMin := p.Duration == d.Stats.Min
+	isMax := p.Duration == d.Stats.Max
+	switch {
+	case isMin && leftJustify:
+		label := p.Duration.String()
+		return ansi.CursorPosition(y, x-(len(label)+2)) + ansi.Green(label+" "+typography.UpTriangle)
+	case isMin:
+		return ansi.CursorPosition(y, x) + ansi.Green(typography.UpTriangle+" "+p.Duration.String())
+	case isMax && leftJustify:
+		label := p.Duration.String()
+		return ansi.CursorPosition(y, x-(len(label)+2)) + ansi.Red(label+" "+typography.DownTriangle)
+	case isMax:
+		return ansi.CursorPosition(y, x) + ansi.Red(typography.DownTriangle+" "+p.Duration.String())
+	default:
+		return ansi.CursorPosition(y, x) + plain
+	}
+}
+
+func shouldGradient(s terminal.Size, d *data.Data) bool {
+	return false
+	// TODO account for dropped packets in these positions
+	b := d.Blocks[0]
+	first := getX(b.Raw[0].Timestamp, d.Header, s)
+	second := getX(b.Raw[1].Timestamp, d.Header, s)
+	return numeric.Abs(first-second) > 0
 }
 
 func computeYAxis(size terminal.Size, stats *data.Stats, url string) yAxis {
@@ -266,10 +364,14 @@ func computeYAxis(size terminal.Size, stats *data.Stats, url string) yAxis {
 func makeTitle(size terminal.Size, stats *data.Stats, url string) string {
 	// TODO string builder, or larger buffer impl
 	sizeStr := size.String()
-	titleBegin := ansi.Cyan(url) + " ["
-	titleEnd := "] " + ansi.Green(sizeStr)
-	remaining := size.Width - 7 - len(url) - 4 - len(sizeStr)
-	title := titleBegin + stats.PickString(remaining) + titleEnd
+	titleBegin := ansi.Cyan(url)
+	titleEnd := ansi.Green(sizeStr)
+	remaining := size.Width - 7 - len(url) - len(sizeStr)
+	statsStr := stats.PickString(remaining)
+	if len(statsStr) > 0 {
+		statsStr = " [" + statsStr + "] "
+	}
+	title := titleBegin + statsStr + titleEnd
 	titleIndent := (size.Width / 2) - (len(title) / 2)
 	finalTitle := ansi.Home + ansi.Magenta("Latency") + ansi.CursorForward(titleIndent) + title
 	return finalTitle
@@ -292,7 +394,7 @@ func computeXAxis(size int, span *data.TimeSpan) xAxis {
 	b.Grow(size * 2)
 	fmt.Fprint(&b, ansi.Magenta(typography.Bullet)+" ")
 	remaining := size - 2
-	toPrint := remaining / spacePerItem
+	toPrint := max(remaining/spacePerItem, 1)
 	durationGap := span.Duration / time.Duration(toPrint)
 	// TODO don't repeat durations
 	for i := range toPrint {
@@ -322,6 +424,7 @@ type xAxis struct {
 	axis     string
 }
 
+// paint knows how to composite the parts of a frame and the spinner
 func paint(size terminal.Size, x, y, lines, spinner string) string {
 	ret := ansi.Clear
 	ret += lines + y

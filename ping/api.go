@@ -100,10 +100,10 @@ type PingResults struct {
 
 func (p PingResults) String() string {
 	const f = "15:04:05.99"
-	if !p.Dropped() {
-		return fmt.Sprintf("%s: %s", p.Timestamp.Format(f), p.Duration.String())
+	if p.Good() {
+		return fmt.Sprintf("%s| %s", p.Timestamp.Format(f), p.Duration.String())
 	}
-	return fmt.Sprintf("%s: DROPPED, reason %q", p.Timestamp.Format(f), p.Error())
+	return fmt.Sprintf("%s| DROPPED, reason %q", p.Timestamp.Format(f), p.Error())
 }
 
 func (p PingResults) Error() string {
@@ -111,6 +111,9 @@ func (p PingResults) Error() string {
 }
 func (p PingResults) Dropped() bool {
 	return p.err != nil
+}
+func (p PingResults) Good() bool {
+	return p.err == nil
 }
 
 func (p *Ping) CreateChannel(ctx context.Context, url string, pingsPerMinute float64, channelSize int) (chan PingResults, error) {
@@ -128,15 +131,14 @@ func (p *Ping) CreateChannel(ctx context.Context, url string, pingsPerMinute flo
 	// value as soon as this method returns), if we get an error let the main loop do the retying.
 	p.addresses, _ = IPv4DNSQuery(url)
 
-	p.timeout = time.Second
-	var rateLimit *time.Ticker
-	if pingsPerMinute != 0 { // Zero is the sentinel, go as fast as possible
-		maxPingDuration := PingsPerMinuteToDuration(pingsPerMinute)
-		rateLimit = time.NewTicker(maxPingDuration)
-		p.timeout = max(min(p.timeout, maxPingDuration), 500*time.Millisecond)
-	}
+	rateLimit := p.buildRateLimiting(pingsPerMinute)
 
 	client := make(chan PingResults, channelSize)
+	p.startChannel(ctx, client, closer, url, rateLimit)
+	return client, nil
+}
+
+func (p *Ping) startChannel(ctx context.Context, client chan PingResults, closer func(), url string, rateLimit *time.Ticker) {
 	run := func() {
 		defer close(client)
 		defer closer()
@@ -145,28 +147,13 @@ func (p *Ping) CreateChannel(ctx context.Context, url string, pingsPerMinute flo
 		var errorDuringLoop bool
 		for {
 			timestamp := time.Now()
-			if p.addresses == nil {
-				p.addresses, err = IPv4DNSQuery(url)
-				if err != nil {
-					client <- packetLoss(timestamp, err)
-					<-rateLimit.C
-					continue // Try again
-				}
-				// Reset our listening, it's a chance our NIC died in which case we need to restart this.
-				closer()
-				for {
-					closer, err := p.startListening(url)
-					if err != nil {
-						continue
-					}
-					defer closer()
-					break
-				}
-			}
-			ip, ok := p.addresses.Get()
-			if !ok {
-				p.addresses = nil // start again, do a new DNS query
-				continue
+
+			ip, newCloser := p.dnsRetry(url, client, timestamp, rateLimit, closer)
+			if newCloser != nil {
+				defer newCloser()
+				closer = newCloser
+				// Reset the timestamp, we were stuck in DNS for too long
+				timestamp = time.Now()
 			}
 
 			if seq, errorDuringLoop = p.pingOnChannel(ctx, timestamp, ip, seq, client, buffer); errorDuringLoop {
@@ -180,17 +167,62 @@ func (p *Ping) CreateChannel(ctx context.Context, url string, pingsPerMinute flo
 				if rateLimit != nil {
 					// This throttles us if required, it will also drop ticks if we are pinging something very slow
 					<-rateLimit.C
-				} else {
-					// Don't block on the receiving channel we just get new pings as fast as possible!
 				}
 			}
 		}
 	}
 	go run()
-	return client, nil
+}
+
+func (p *Ping) dnsRetry(url string, client chan PingResults, timestamp time.Time, rateLimit *time.Ticker, closer func()) (net.IP, func()) {
+	var err error
+	var newCloser func()
+HARD_RETRY:
+	if p.addresses == nil {
+		// Keeping doing a DNS query until we get a valid result, count each failure as a dropped packet
+		for p.addresses == nil {
+			// start again, do a new DNS query
+			p.addresses, err = IPv4DNSQuery(url)
+			if err != nil {
+				client <- packetLoss(timestamp, err)
+				<-rateLimit.C
+				timestamp = time.Now()
+			}
+		}
+		// Reset our listening, it's a chance our NIC died in which case we need to restart this.
+		// I don't think we can tell that the inner listener died.
+		closer()
+		for {
+			newCloser, err = p.startListening(url)
+			if err == nil {
+				break
+			}
+		}
+	}
+	ip, ok := p.addresses.Get()
+	if !ok {
+		p.addresses = nil
+		goto HARD_RETRY // Avoid recursion, if we made it here either we have a fresh restart the entire address pool is exhausted
+	}
+	return ip, newCloser
+}
+
+func (p *Ping) buildRateLimiting(pingsPerMinute float64) *time.Ticker {
+	p.timeout = time.Second
+	var rateLimit *time.Ticker
+	// Zero is the sentinel, go as fast as possible
+	if pingsPerMinute != 0 {
+		maxPingDuration := PingsPerMinuteToDuration(pingsPerMinute)
+		rateLimit = time.NewTicker(maxPingDuration)
+		p.timeout = max(min(p.timeout, maxPingDuration), 500*time.Millisecond)
+	}
+	return rateLimit
 }
 
 func PingsPerMinuteToDuration(pingsPerMinute float64) time.Duration {
+	if pingsPerMinute == 0 {
+		return 0
+	}
 	gapBetweenPings := math.Round((60 * 1000) / (pingsPerMinute))
 	return time.Millisecond * time.Duration(gapBetweenPings)
 }

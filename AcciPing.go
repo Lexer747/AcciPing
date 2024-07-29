@@ -8,7 +8,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/Lexer747/AcciPing/graph"
 	"github.com/Lexer747/AcciPing/graph/terminal"
@@ -21,21 +20,26 @@ func main() {
 	p := ping.NewPing()
 	ctx, cancelFunc := context.WithCancelCause(context.Background())
 	defer cancelFunc(nil)
-	pingsPerMinute := 15.0
+	term, err := terminal.NewTerminal()
+	if err != nil {
+		panic(err.Error())
+	}
+	pingsPerMinute := 60.0
 	channel, err := p.CreateChannel(ctx, demoURL, pingsPerMinute, 10)
 	if err != nil {
 		panic(err.Error())
 	}
-	g, err := graph.NewGraph(ctx, channel, pingsPerMinute, demoURL)
+	g, err := graph.NewGraph(ctx, channel, term, pingsPerMinute, demoURL)
 	if err != nil {
 		panic(err.Error())
 	}
 	// Very high FPS is good for responsiveness in the UI (since it's locked) and re-drawing on a re-size.
-	err = g.Run(ctx, cancelFunc, 60)
+	err = g.Run(ctx, cancelFunc, 0)
 	if err != nil && !errors.Is(err, terminal.UserCancelled) {
 		panic(err.Error())
 	} else {
 		_ = g.Term.ClearScreen(true)
-		fmt.Println("Summary\t" + g.Summarize())
+		g.Term.Print(g.LastFrame())
+		g.Term.Print("Summary\n" + g.Summarize())
 	}
 }
