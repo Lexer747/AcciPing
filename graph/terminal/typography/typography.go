@@ -38,26 +38,14 @@ const (
 	TopLeftSquare     = "\u2598"
 	BottomRightSquare = "\u2597"
 	TopRightSquare    = "\u259D"
-)
 
-// Gradient operates on the [0,1] range.
-func Gradient(g float64) string {
-	switch {
-	case g > 0.9:
-		return VerySteepUpSlope
-	case g > 0.8:
-		return SteepUpSlope
-	case g > 0.65:
-		return UpSlope
-	case g > 0.55:
-		return GentleUpSlope
-	case g > 0.45:
-		return Horizontal
-	case g > 0.3:
-		return GentleDownSlope
-	case g > 0.2:
-		return DownSlope
-	default:
-		return SteepDownSlope
-	}
-}
+	UpperLeftQuadrantCircularArc  = "\u25DC"
+	UpperRightQuadrantCircularArc = "\u25DD"
+	LowerRightQuadrantCircularArc = "\u25DE"
+	LowerLeftQuadrantCircularArc  = "\u25DF"
+
+	BottomLine = "\u23BD"
+	LowerLine  = "\u23BC"
+	UpperLine  = "\u23BB"
+	TopLine    = "\u23BA"
+)

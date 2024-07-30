@@ -1,0 +1,2 @@
+# Test outputs which are not GOLDEN's
+*.actual

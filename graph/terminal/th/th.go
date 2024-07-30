@@ -98,6 +98,7 @@ func (f *TestFile) Write(p []byte) (n int, err error) {
 }
 
 func (f *TestFile) WriteCtrlC(t *testing.T) {
+	t.Helper()
 	_, err := f.Write([]byte("\x03"))
 	require.NoError(t, err)
 }

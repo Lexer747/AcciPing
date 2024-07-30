@@ -44,6 +44,9 @@ type Number interface {
 	constraints.Float | constraints.Signed
 }
 
+// Abs returns a concrete, but constraints confuse this linter.
+//
+//nolint:ireturn
 func Abs[N Number](n N) N {
 	if n < 0 {
 		return N(-1) * n

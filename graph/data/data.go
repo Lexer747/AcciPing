@@ -18,11 +18,10 @@ import (
 
 type Data struct {
 	*Header
-	Blocks                []*Block
-	BetweenBlockGradients []float64
-	TotalCount            int
-	curBlock              int
-	configuredBlockLimit  int // TODO add to export
+	Blocks               []*Block
+	TotalCount           int
+	curBlock             int
+	configuredBlockLimit int // TODO add to export
 }
 
 type Options struct {
@@ -40,9 +39,8 @@ func NewData(o ...Options) *Data {
 		configuredBlockLimit: defaultBlockLimit,
 	}
 	d.Blocks = []*Block{{
-		Header:    &Header{Stats: &Stats{}},
-		Raw:       make([]ping.PingResults, 0, defaultBlockLimit),
-		Gradients: make([]float64, 0, defaultBlockLimit-1),
+		Header: &Header{Stats: &Stats{}},
+		Raw:    make([]ping.PingResults, 0, defaultBlockLimit),
 	}}
 	return d
 }
@@ -50,30 +48,14 @@ func NewData(o ...Options) *Data {
 func (d *Data) AddPoint(p ping.PingResults) {
 	curBlock := d.getCurrentBlock()
 	newBlock := len(curBlock.Raw) >= d.configuredBlockLimit
-	blockGradient := 0.0
 	if newBlock {
 		// Make a new block and swap to it
 		d.addBlock()
-		last := curBlock.Raw[len(curBlock.Raw)-1]
-		blockGradient = gradient(last, p)
-		d.BetweenBlockGradients = append(d.BetweenBlockGradients, blockGradient)
 		curBlock = d.getCurrentBlock()
 	}
-	gradient := curBlock.AddPoint(p)
-	if newBlock {
-		d.Header.AddGradientPoint(p, blockGradient)
-	} else {
-		d.Header.AddGradientPoint(p, gradient)
-	}
+	curBlock.AddPoint(p)
+	d.Header.AddPoint(p)
 	d.TotalCount++
-}
-
-func (d *Data) GetGradient(blockIndex, rawIndex int) float64 {
-	if rawIndex == d.configuredBlockLimit-1 {
-		return d.BetweenBlockGradients[blockIndex]
-	}
-	block := d.Blocks[blockIndex]
-	return block.Gradients[rawIndex]
 }
 
 func (d *Data) IsLast(blockIndex, rawIndex int) bool {
@@ -112,12 +94,11 @@ func (s *TimeSpan) AddTimestamp(t time.Time) {
 
 // Header describes the statistical properties of a group of objects.
 type Header struct {
-	Stats                    *Stats
-	Span                     *TimeSpan
-	MinGradient, MaxGradient float64
+	Stats *Stats
+	Span  *TimeSpan
 }
 
-func (h *Header) AddGradientPoint(p ping.PingResults, gradient float64) {
+func (h *Header) AddPoint(p ping.PingResults) {
 	if h.Stats.GoodCount == 0 {
 		h.Span = &TimeSpan{Begin: p.Timestamp, End: p.Timestamp}
 	} else {
@@ -128,44 +109,16 @@ func (h *Header) AddGradientPoint(p ping.PingResults, gradient float64) {
 	} else {
 		h.Stats.AddPoint(p.Duration)
 	}
-	if h.Stats.GoodCount == 1 {
-		h.MinGradient = gradient
-		h.MaxGradient = gradient
-	} else {
-		h.MinGradient = min(h.MinGradient, gradient)
-		h.MaxGradient = max(h.MaxGradient, gradient)
-	}
 }
 
 type Block struct {
 	*Header
-	Raw       []ping.PingResults
-	Gradients []float64
+	Raw []ping.PingResults
 }
 
-func (b *Block) AddPoint(p ping.PingResults) float64 {
+func (b *Block) AddPoint(p ping.PingResults) {
 	b.Raw = append(b.Raw, p)
-	grad := 0.0
-	if b.Header.Stats.GoodCount > 0 {
-		last := b.Raw[len(b.Raw)-2]
-		grad = gradient(last, p)
-		b.Gradients = append(b.Gradients, grad)
-		if b.Header.Stats.GoodCount == 2 {
-			b.Header.MaxGradient = grad
-			b.Header.MinGradient = grad
-		} else {
-			b.Header.MaxGradient = max(b.Header.MaxGradient, grad)
-			b.Header.MinGradient = min(b.Header.MinGradient, grad)
-		}
-	}
-	b.Header.AddGradientPoint(p, grad)
-	return grad
-}
-
-func gradient(last ping.PingResults, current ping.PingResults) float64 {
-	rise := float64(current.Duration) - float64(last.Duration)
-	run := float64(current.Timestamp.Sub(last.Timestamp))
-	return rise / run
+	b.Header.AddPoint(p)
 }
 
 type Stats struct {
@@ -259,13 +212,13 @@ func (s Stats) PickString(remainingSpace int) string {
 	switch {
 	case remainingSpace > 100:
 		return s.longString()
-	case remainingSpace > 70 && s.PacketsDropped > 0:
+	case remainingSpace > 80 && s.PacketsDropped > 0:
 		return s.mediumString()
 	case remainingSpace > 55 && s.PacketsDropped == 0:
 		return s.mediumString()
-	case remainingSpace > 45 && s.PacketsDropped > 0:
+	case remainingSpace > 61 && s.PacketsDropped > 0:
 		return s.shortString()
-	case remainingSpace > 35 && s.PacketsDropped == 0:
+	case remainingSpace > 45 && s.PacketsDropped == 0:
 		return s.shortString()
 	case remainingSpace > 10:
 		return s.superShortString()

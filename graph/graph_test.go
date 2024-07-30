@@ -9,6 +9,7 @@ package graph_test
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"strconv"
 	"strings"
@@ -21,33 +22,171 @@ import (
 	"github.com/Lexer747/AcciPing/graph/terminal/th"
 	"github.com/Lexer747/AcciPing/ping"
 	"github.com/Lexer747/AcciPing/utils/check"
+	"github.com/Lexer747/AcciPing/utils/errors"
 	"github.com/stretchr/testify/require"
 )
 
 func TestSmallDrawing(t *testing.T) {
+	t.Parallel()
 	test := DrawingTest{
 		Size: terminal.Size{Height: 5, Width: 20},
 		Values: []ping.PingResults{
-			{Duration: 1, Timestamp: time.Time{}.Add(1)},
-			{Duration: 2, Timestamp: time.Time{}.Add(2)},
-			{Duration: 3, Timestamp: time.Time{}.Add(3)},
+			{Duration: 1 * time.Second, Timestamp: time.Time{}.Add(1 * time.Second)},
+			{Duration: 2 * time.Second, Timestamp: time.Time{}.Add(2 * time.Second)},
+			{Duration: 3 * time.Second, Timestamp: time.Time{}.Add(3 * time.Second)},
 		},
 		ExpectedFile: "testdata/small.frame",
 	}
-	updateDrawingTest(t, test)
+	drawingTest(t, test)
+}
+
+func TestNegativeGradientDrawing(t *testing.T) {
+	t.Parallel()
+	test := DrawingTest{
+		Size: terminal.Size{Height: 15, Width: 80},
+		Values: []ping.PingResults{
+			{Duration: 6 * time.Second, Timestamp: time.Time{}.Add(1 * time.Second)},
+			{Duration: 5 * time.Second, Timestamp: time.Time{}.Add(2 * time.Second)},
+			{Duration: 4 * time.Second, Timestamp: time.Time{}.Add(3 * time.Second)},
+			{Duration: 3 * time.Second, Timestamp: time.Time{}.Add(4 * time.Second)},
+			{Duration: 2 * time.Second, Timestamp: time.Time{}.Add(5 * time.Second)},
+			{Duration: 1 * time.Second, Timestamp: time.Time{}.Add(6 * time.Second)},
+		},
+		ExpectedFile: "testdata/negative-gradient.frame",
+	}
+	drawingTest(t, test)
+}
+
+func TestPacketLossDrawing(t *testing.T) {
+	t.Parallel()
+	test := DrawingTest{
+		Size: terminal.Size{Height: 15, Width: 80},
+		Values: []ping.PingResults{
+			{Duration: 6 * time.Second, Timestamp: time.Time{}.Add(1 * time.Second)},
+			{Duration: 5 * time.Second, Timestamp: time.Time{}.Add(2 * time.Second)},
+			ping.NewTestPingResult(errors.Errorf("oh noes"), time.Time{}.Add(3*time.Second)),
+			ping.NewTestPingResult(errors.Errorf("oh noes"), time.Time{}.Add(4*time.Second)),
+			ping.NewTestPingResult(errors.Errorf("oh noes"), time.Time{}.Add(5*time.Second)),
+			{Duration: 4 * time.Second, Timestamp: time.Time{}.Add(6 * time.Second)},
+			{Duration: 3 * time.Second, Timestamp: time.Time{}.Add(7 * time.Second)},
+			{Duration: 2 * time.Second, Timestamp: time.Time{}.Add(8 * time.Second)},
+			ping.NewTestPingResult(errors.Errorf("oh noes"), time.Time{}.Add(9*time.Second)),
+			ping.NewTestPingResult(errors.Errorf("oh noes"), time.Time{}.Add(10*time.Second)),
+			{Duration: 7 * time.Second, Timestamp: time.Time{}.Add(11 * time.Second)},
+			ping.NewTestPingResult(errors.Errorf("oh noes"), time.Time{}.Add(12*time.Second)),
+			{Duration: 4 * time.Second, Timestamp: time.Time{}.Add(13 * time.Second)},
+			{Duration: 4 * time.Second, Timestamp: time.Time{}.Add(14 * time.Second)},
+			{Duration: 13 * time.Second, Timestamp: time.Time{}.Add(15 * time.Second)},
+		},
+		ExpectedFile: "testdata/packet-loss.frame",
+	}
+	drawingTest(t, test)
 }
 
 func TestLargeDrawing(t *testing.T) {
+	t.Parallel()
 	test := DrawingTest{
 		Size: terminal.Size{Height: 35, Width: 160},
 		Values: []ping.PingResults{
-			{Duration: 1, Timestamp: time.Time{}.Add(1)},
-			{Duration: 2, Timestamp: time.Time{}.Add(2)},
-			{Duration: 3, Timestamp: time.Time{}.Add(3)},
+			{Duration: 1 * time.Second, Timestamp: time.Time{}.Add(1 * time.Second)},
+			{Duration: 2 * time.Second, Timestamp: time.Time{}.Add(2 * time.Second)},
+			{Duration: 3 * time.Second, Timestamp: time.Time{}.Add(3 * time.Second)},
 		},
 		ExpectedFile: "testdata/large.frame",
 	}
-	updateDrawingTest(t, test)
+	drawingTest(t, test)
+}
+
+func TestManyDrawing(t *testing.T) {
+	t.Parallel()
+	// Fixed seed, used in testing only, not sec sensitive
+	rng := rand.New(rand.NewPCG(4, 4)) //nolint:gosec
+	test := DrawingTest{
+		Size: terminal.Size{Height: 25, Width: 100},
+		Values: []ping.PingResults{
+			{
+				Duration:  time.Duration(rng.Float64() * float64(10*time.Millisecond)),
+				Timestamp: time.Time{}.Add(1*time.Second + time.Duration(rng.Float64()*float64(time.Second))),
+			},
+			{
+				Duration:  time.Duration(rng.Float64() * float64(10*time.Millisecond)),
+				Timestamp: time.Time{}.Add(2*time.Second + time.Duration(rng.Float64()*float64(time.Second))),
+			},
+			{
+				Duration:  time.Duration(rng.Float64() * float64(10*time.Millisecond)),
+				Timestamp: time.Time{}.Add(3*time.Second + time.Duration(rng.Float64()*float64(time.Second))),
+			},
+			{
+				Duration:  time.Duration(rng.Float64() * float64(10*time.Millisecond)),
+				Timestamp: time.Time{}.Add(4*time.Second + time.Duration(rng.Float64()*float64(time.Second))),
+			},
+			{
+				Duration:  time.Duration(rng.Float64() * float64(10*time.Millisecond)),
+				Timestamp: time.Time{}.Add(5*time.Second + time.Duration(rng.Float64()*float64(time.Second))),
+			},
+			{
+				Duration:  time.Duration(rng.Float64() * float64(10*time.Millisecond)),
+				Timestamp: time.Time{}.Add(6*time.Second + time.Duration(rng.Float64()*float64(time.Second))),
+			},
+			{
+				Duration:  time.Duration(rng.Float64() * float64(10*time.Millisecond)),
+				Timestamp: time.Time{}.Add(7*time.Second + time.Duration(rng.Float64()*float64(time.Second))),
+			},
+			{
+				Duration:  time.Duration(rng.Float64() * float64(10*time.Millisecond)),
+				Timestamp: time.Time{}.Add(8*time.Second + time.Duration(rng.Float64()*float64(time.Second))),
+			},
+			{
+				Duration:  time.Duration(rng.Float64() * float64(10*time.Millisecond)),
+				Timestamp: time.Time{}.Add(9*time.Second + time.Duration(rng.Float64()*float64(time.Second))),
+			},
+			{
+				Duration:  time.Duration(rng.Float64() * float64(10*time.Millisecond)),
+				Timestamp: time.Time{}.Add(10*time.Second + time.Duration(rng.Float64()*float64(time.Second))),
+			},
+			{
+				Duration:  time.Duration(rng.Float64() * float64(10*time.Millisecond)),
+				Timestamp: time.Time{}.Add(11*time.Second + time.Duration(rng.Float64()*float64(time.Second))),
+			},
+			{
+				Duration:  time.Duration(rng.Float64() * float64(10*time.Millisecond)),
+				Timestamp: time.Time{}.Add(12*time.Second + time.Duration(rng.Float64()*float64(time.Second))),
+			},
+			{
+				Duration:  time.Duration(rng.Float64() * float64(10*time.Millisecond)),
+				Timestamp: time.Time{}.Add(13*time.Second + time.Duration(rng.Float64()*float64(time.Second))),
+			},
+			{
+				Duration:  time.Duration(rng.Float64() * float64(10*time.Millisecond)),
+				Timestamp: time.Time{}.Add(14*time.Second + time.Duration(rng.Float64()*float64(time.Second))),
+			},
+			{
+				Duration:  time.Duration(rng.Float64() * float64(10*time.Millisecond)),
+				Timestamp: time.Time{}.Add(15*time.Second + time.Duration(rng.Float64()*float64(time.Second))),
+			},
+		},
+		ExpectedFile: "testdata/many.frame",
+	}
+	drawingTest(t, test)
+}
+
+func TestThousandsDrawing(t *testing.T) {
+	t.Parallel()
+	// Fixed seed, used in testing only, not sec sensitive
+	rng := rand.New(rand.NewPCG(5, 5)) //nolint:gosec
+	generated := make([]ping.PingResults, 5000)
+	for i := range generated {
+		generated[i] = ping.PingResults{
+			Duration:  time.Duration(rng.Float64() * float64(10*time.Millisecond)),
+			Timestamp: time.Time{}.Add(time.Duration(i)*time.Second + time.Duration(rng.Float64()*float64(time.Second))),
+		}
+	}
+	test := DrawingTest{
+		Size:         terminal.Size{Height: 25, Width: 100},
+		Values:       generated,
+		ExpectedFile: "testdata/thousands.frame",
+	}
+	drawingTest(t, test)
 }
 
 type DrawingTest struct {
@@ -56,22 +195,32 @@ type DrawingTest struct {
 	ExpectedFile string
 }
 
+// updateDrawingTest used for updating goldens.
+//
+//nolint:unused
 func updateDrawingTest(t *testing.T, test DrawingTest) {
 	t.Helper()
 	actual := drawGraph(t, test.Size, test.Values)
-	x := strings.Join(actual, "\n")
-	err := os.WriteFile(test.ExpectedFile, []byte(x), os.ModePerm)
+	err := os.WriteFile(test.ExpectedFile, []byte(strings.Join(actual, "\n")), os.ModePerm)
 	require.NoError(t, err)
 	t.Fatal("Only call update drawing once")
 }
 
 func drawingTest(t *testing.T, test DrawingTest) {
+	// updateDrawingTest(t, test)
 	t.Helper()
-	actual := drawGraph(t, test.Size, test.Values)
+	actualStrings := drawGraph(t, test.Size, test.Values)
 	expectedBytes, err := os.ReadFile(test.ExpectedFile)
 	require.NoError(t, err)
-	expectedStrings := strings.Split(string(expectedBytes), "\n")
-	require.Equal(t, expectedStrings, actual)
+	actualJoined := strings.Join(actualStrings, "\n")
+	actualOutput := test.ExpectedFile + ".actual"
+	if string(expectedBytes) != actualJoined {
+		err := os.WriteFile(actualOutput, []byte(actualJoined), os.ModePerm)
+		require.NoError(t, err)
+		t.Fatalf("Diff in outputs see %s", actualOutput)
+	} else {
+		os.Remove(actualOutput)
+	}
 }
 
 func drawGraph(t *testing.T, size terminal.Size, input []ping.PingResults) []string {
@@ -83,7 +232,7 @@ func drawGraph(t *testing.T, size terminal.Size, input []ping.PingResults) []str
 	require.NoError(t, err)
 	defer closer()
 
-	actual := eval(g, input)
+	actual := eval(t, g, input)
 	output := makeBuffer(size)
 	return playAnsiOntoStringBuffer(actual, output, size)
 }
@@ -97,6 +246,7 @@ func makeBuffer(size terminal.Size) []string {
 }
 
 func initTestGraph(t *testing.T, size terminal.Size) (*graph.Graph, func(), error) {
+	t.Helper()
 	stdin, _, term, setTerm, err := th.NewTestTerminal()
 	setTerm(size)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -110,11 +260,14 @@ func initTestGraph(t *testing.T, size terminal.Size) (*graph.Graph, func(), erro
 	return g, func() { stdin.WriteCtrlC(t) }, err
 }
 
-func eval(g *graph.Graph, input []ping.PingResults) string {
+func eval(t *testing.T, g *graph.Graph, input []ping.PingResults) string {
+	t.Helper()
 	for _, p := range input {
 		g.AddPoint(p)
 	}
+	require.Equal(t, len(input), g.Size())
 	actual := g.ComputeFrame()
+	require.Equal(t, len(input), g.Size())
 	return actual
 }
 
@@ -200,10 +353,7 @@ func playAnsiOntoStringBuffer(ansiText string, buffer []string, size terminal.Si
 }
 
 func (a *ansiState) EoF() bool {
-	if a.head >= len(a.asRunes) {
-		return true
-	}
-	return false
+	return a.head >= len(a.asRunes)
 }
 
 func (a *ansiState) write(c rune) {

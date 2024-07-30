@@ -46,6 +46,9 @@ linters-settings:
               Copyright {{ YEAR }} {{ AUTHOR }}
 
               SPDX-License-Identifier: GPL-2.0-only
+  gosec:
+    excludes:
+      - G306 # Too noisy
 
 
 linters:
