@@ -48,7 +48,7 @@ func (g *Graph) computeFrame(timeBetweenFrames time.Duration, drawSpinner bool) 
 		return spinnerValue
 	}
 
-	x := computeXAxis(s.Width, g.data.Header.Span)
+	x := computeXAxis(s.Width, g.data.Header.TimeSpan)
 	y := computeYAxis(s, g.data.Header.Stats, g.url)
 	innerFrame := computeInnerFrame(s, g.data, y)
 	// Everything we need is now cached we can unlock a bit early while we tidy up for the next frame
@@ -82,7 +82,7 @@ func spinner(s terminal.Size, i int, timeBetweenFrames time.Duration) string {
 	return ansi.CursorPosition(1, s.Width-3) + ansi.Cyan(spinnerArray[a%len(spinnerArray)])
 }
 
-func translate(s terminal.Size, p ping.PingResults, info *data.Header, labelSize int) (y, x int) {
+func translate(s terminal.Size, p ping.PingDataPoint, info *data.Header, labelSize int) (y, x int) {
 	x = getX(p.Timestamp, info, s, labelSize)
 	y = getY(p.Duration, info, s)
 	return
@@ -99,23 +99,23 @@ func getY(dur time.Duration, info *data.Header, s terminal.Size) int {
 }
 
 func getX(t time.Time, info *data.Header, s terminal.Size, labelSize int) int {
-	timestamp := info.Span.End.Sub(t)
+	timestamp := info.TimeSpan.End.Sub(t)
 	return int(numeric.NormalizeToRange(
 		float64(timestamp),
 		0,
-		float64(info.Span.Duration),
+		float64(info.TimeSpan.Duration),
 		float64(s.Width-1),
 		float64(labelSize),
 	))
 }
 
 type gradientState struct {
-	lastGoodIndex          int
+	lastGoodIndex          int64
 	lastGoodTerminalWidth  int
 	lastGoodTerminalHeight int
 }
 
-func (g gradientState) set(i, x, y int) gradientState {
+func (g gradientState) set(i int64, x, y int) gradientState {
 	return gradientState{
 		lastGoodIndex:          i,
 		lastGoodTerminalWidth:  x,
@@ -151,24 +151,23 @@ func computeInnerFrame(s terminal.Size, d *data.Data, yAxis yAxis) string {
 
 	lastWasDropped := false
 	lastDroppedTerminalX := -1
-	for _, block := range d.Blocks {
-		for _, p := range block.Raw {
-			x := getX(p.Timestamp, d.Header, s, yAxis.labelSize)
-			if p.Dropped() {
-				ret += ansi.CursorPosition(2, x) + droppedBar
-				if lastWasDropped {
-					for i := min(lastDroppedTerminalX, x) + 1; i < max(lastDroppedTerminalX, x); i++ {
-						ret += ansi.CursorPosition(2, i) + droppedFiller
-					}
+	for i := range d.TotalCount {
+		p := d.Get(i)
+		x := getX(p.Timestamp, d.Header, s, yAxis.labelSize)
+		if p.Dropped() {
+			ret += ansi.CursorPosition(2, x) + droppedBar
+			if lastWasDropped {
+				for i := min(lastDroppedTerminalX, x) + 1; i < max(lastDroppedTerminalX, x); i++ {
+					ret += ansi.CursorPosition(2, i) + droppedFiller
 				}
-				lastWasDropped = true
-				lastDroppedTerminalX = x
-				continue
 			}
-			lastWasDropped = false
-			y := getY(p.Duration, d.Header, s)
-			ret += drawPoint(p, d, x, y, centreX)
+			lastWasDropped = true
+			lastDroppedTerminalX = x
+			continue
 		}
+		lastWasDropped = false
+		y := getY(p.Duration, d.Header, s)
+		ret += drawPoint(p, d, x, y, centreX)
 	}
 
 	return ret
@@ -177,21 +176,20 @@ func computeInnerFrame(s terminal.Size, d *data.Data, yAxis yAxis) string {
 func drawGradients(d *data.Data, s terminal.Size, yAxis yAxis) string {
 	ret := ""
 	g := gradientState{}
-	for bi, block := range d.Blocks {
-		for i, p := range block.Raw {
-			if p.Dropped() {
-				g = g.dropped()
-				continue
-			}
-			y, x := translate(s, p, d.Header, yAxis.labelSize)
-			if g.draw() && !d.IsLast(bi, i-1) {
-				ret += drawGradient(
-					d.Header, x, y, p, s, yAxis.labelSize,
-					block.Raw[g.lastGoodIndex], g.lastGoodTerminalWidth, g.lastGoodTerminalHeight,
-				)
-			}
-			g = g.set(i, x, y)
+	for i := range d.TotalCount {
+		p := d.Get(i)
+		if p.Dropped() {
+			g = g.dropped()
+			continue
 		}
+		y, x := translate(s, p, d.Header, yAxis.labelSize)
+		if g.draw() && !d.IsLast(i) {
+			ret += drawGradient(
+				d.Header, x, y, p, s, yAxis.labelSize,
+				d.Get(g.lastGoodIndex), g.lastGoodTerminalWidth, g.lastGoodTerminalHeight,
+			)
+		}
+		g = g.set(i, x, y)
 	}
 	return ret
 }
@@ -209,10 +207,10 @@ func makeDroppedPacketIndicators(d *data.Data, s terminal.Size) (string, string)
 func drawGradient(
 	header *data.Header,
 	x, y int,
-	current ping.PingResults,
+	current ping.PingDataPoint,
 	s terminal.Size,
 	labelSize int,
-	lastGood ping.PingResults,
+	lastGood ping.PingDataPoint,
 	lastGoodTerminalWidth int,
 	lastGoodTerminalHeight int,
 ) string {
@@ -228,7 +226,7 @@ func drawGradient(
 	for toDraw := 1.5; toDraw < gradientsToDraw; toDraw++ {
 		interpolatedDuration := lastGood.Duration + time.Duration(toDraw*stepSizeY)
 		interpolatedStamp := lastGood.Timestamp.Add(time.Duration(toDraw * stepSizeX))
-		p := ping.PingResults{Duration: interpolatedDuration, Timestamp: interpolatedStamp}
+		p := ping.PingDataPoint{Duration: interpolatedDuration, Timestamp: interpolatedStamp}
 		cursorY, cursorX := translate(s, p, header, labelSize)
 		pointsX = append(pointsX, cursorX)
 		pointsY = append(pointsY, cursorY)
@@ -240,10 +238,10 @@ func drawGradient(
 	return ret
 }
 
-func drawPoint(p ping.PingResults, d *data.Data, x, y, centreX int) string {
+func drawPoint(p ping.PingDataPoint, d *data.Data, x, y, centreX int) string {
 	leftJustify := x > centreX
-	isMin := p.Duration == d.Stats.Min
-	isMax := p.Duration == d.Stats.Max
+	isMin := p.Duration == d.Header.Stats.Min
+	isMax := p.Duration == d.Header.Stats.Max
 	switch {
 	case isMin && leftJustify:
 		label := p.Duration.String()

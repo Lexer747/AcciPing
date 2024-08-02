@@ -9,70 +9,92 @@ package data
 import (
 	"fmt"
 	"math"
+	"net"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/Lexer747/AcciPing/ping"
 	"github.com/Lexer747/AcciPing/utils/numeric"
+	"github.com/Lexer747/AcciPing/utils/sliceutils"
 )
 
 type Data struct {
-	*Header
-	Blocks               []*Block
-	TotalCount           int
-	curBlock             int
-	configuredBlockLimit int // TODO add to export
+	URL         string
+	Header      *Header
+	Network     *Network
+	InsertOrder []DataIndexes
+	Blocks      []*Block
+	TotalCount  int64
+	Version     byte
 }
 
-type Options struct {
-	BlockSize int
+type DataIndexes struct {
+	BlockIndex, RawIndex int
 }
 
-func NewData(o ...Options) *Data {
-	defaultBlockLimit := 2048
-	if len(o) > 0 { // TODO explain options
-		defaultBlockLimit = o[0].BlockSize
-	}
+func NewData(URL string) *Data {
 	d := &Data{
-		Header:               &Header{Stats: &Stats{}},
-		curBlock:             0,
-		configuredBlockLimit: defaultBlockLimit,
+		URL:         URL,
+		Header:      &Header{Stats: &Stats{}, TimeSpan: &TimeSpan{Begin: time.UnixMilli(0), End: time.UnixMilli(0), Duration: 0}},
+		Network:     &Network{IPs: []net.IP{}, BlockIndexes: []int{}, curBlockIndex: 0},
+		InsertOrder: []DataIndexes{},
+		Blocks:      []*Block{},
+		TotalCount:  0,
+		Version:     currentDataVersion,
 	}
-	d.Blocks = []*Block{{
-		Header: &Header{Stats: &Stats{}},
-		Raw:    make([]ping.PingResults, 0, defaultBlockLimit),
-	}}
 	return d
 }
 
 func (d *Data) AddPoint(p ping.PingResults) {
-	curBlock := d.getCurrentBlock()
-	newBlock := len(curBlock.Raw) >= d.configuredBlockLimit
-	if newBlock {
-		// Make a new block and swap to it
+	blockIndex := d.Network.AddPoint(p.IP)
+	if blockIndex >= len(d.Blocks) {
 		d.addBlock()
-		curBlock = d.getCurrentBlock()
 	}
-	curBlock.AddPoint(p)
-	d.Header.AddPoint(p)
+	curBlock := d.getBlock(blockIndex)
+	rawIndex := curBlock.AddPoint(p.Data)
+	d.Header.AddPoint(p.Data)
 	d.TotalCount++
+	d.InsertOrder = append(d.InsertOrder, DataIndexes{
+		BlockIndex: blockIndex,
+		RawIndex:   rawIndex,
+	})
 }
 
-func (d *Data) IsLast(blockIndex, rawIndex int) bool {
-	return rawIndex+1 == len(d.Blocks[blockIndex].Raw) &&
-		blockIndex+1 == len(d.Blocks)
+func (d *Data) Get(index int64) ping.PingDataPoint {
+	this := d.InsertOrder[index]
+	return d.Blocks[this.BlockIndex].Raw[this.RawIndex]
+}
+func (d *Data) GetFull(index int64) ping.PingResults {
+	this := d.InsertOrder[index]
+	dataPoint := d.Blocks[this.BlockIndex].Raw[this.RawIndex]
+	i := slices.Index(d.Network.BlockIndexes, this.BlockIndex)
+	ip := d.Network.IPs[i]
+	return ping.PingResults{
+		Data: dataPoint,
+		IP:   ip,
+	}
+}
+func (d *Data) End(index int64) bool {
+	return int(index) == len(d.InsertOrder)
+}
+func (d *Data) IsLast(index int64) bool {
+	return d.End(index - 1)
 }
 
 func (d *Data) addBlock() {
 	d.Blocks = append(d.Blocks, &Block{
-		Header: &Header{Stats: &Stats{}},
-		Raw:    make([]ping.PingResults, 0, d.configuredBlockLimit),
+		Header: &Header{Stats: &Stats{}, TimeSpan: &TimeSpan{}},
+		Raw:    make([]ping.PingDataPoint, 0, 1024),
 	})
-	d.curBlock++
 }
 
-func (d *Data) getCurrentBlock() *Block {
-	return d.Blocks[d.curBlock]
+func (d *Data) getBlock(blockIndex int) *Block {
+	return d.Blocks[blockIndex]
+}
+
+func (d *Data) String() string {
+	return fmt.Sprintf("%s: [%s] | %s", d.URL, d.Network.String(), d.Header.String())
 }
 
 // TimeSpan is the time properties of a given thing
@@ -82,27 +104,27 @@ type TimeSpan struct {
 	Duration time.Duration
 }
 
-func (s *TimeSpan) AddTimestamp(t time.Time) {
-	if s.Begin.After(t) {
-		s.Begin = t
+func (ts *TimeSpan) AddTimestamp(t time.Time) {
+	if ts.Begin.After(t) {
+		ts.Begin = t
 	}
-	if s.End.Before(t) {
-		s.End = t
+	if ts.End.Before(t) {
+		ts.End = t
 	}
-	s.Duration = s.End.Sub(s.Begin)
+	ts.Duration = ts.End.Sub(ts.Begin)
 }
 
 // Header describes the statistical properties of a group of objects.
 type Header struct {
-	Stats *Stats
-	Span  *TimeSpan
+	Stats    *Stats
+	TimeSpan *TimeSpan
 }
 
-func (h *Header) AddPoint(p ping.PingResults) {
+func (h *Header) AddPoint(p ping.PingDataPoint) {
 	if h.Stats.GoodCount == 0 {
-		h.Span = &TimeSpan{Begin: p.Timestamp, End: p.Timestamp}
+		h.TimeSpan = &TimeSpan{Begin: p.Timestamp, End: p.Timestamp}
 	} else {
-		h.Span.AddTimestamp(p.Timestamp)
+		h.TimeSpan.AddTimestamp(p.Timestamp)
 	}
 	if p.Dropped() {
 		h.Stats.AddDroppedPacket()
@@ -111,23 +133,59 @@ func (h *Header) AddPoint(p ping.PingResults) {
 	}
 }
 
-type Block struct {
-	*Header
-	Raw []ping.PingResults
+func (h *Header) String() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s | %s", h.TimeSpan.String(), h.Stats.String())
+	return b.String()
 }
 
-func (b *Block) AddPoint(p ping.PingResults) {
+type Network struct {
+	IPs           []net.IP
+	BlockIndexes  []int
+	curBlockIndex int
+}
+
+// AddPoint will insert the IP into the network and return the block index for this IP, noting that it will
+// return an out of range index if this IP has not been seen before.
+func (n *Network) AddPoint(ip net.IP) int {
+	ip = ip.To16() // Ensure all saved IPs are in IPv6 format
+	if ip == nil {
+		ip = net.IPv6zero // DNS failure, etc
+	}
+	i, found := slices.BinarySearchFunc(n.IPs, ip, ipOrdering)
+	if found {
+		return n.BlockIndexes[i]
+	}
+	cur := n.curBlockIndex
+	n.IPs = slices.Insert(n.IPs, i, ip)
+	n.BlockIndexes = slices.Insert(n.BlockIndexes, i, cur)
+	n.curBlockIndex++
+	return cur
+}
+
+func (n *Network) String() string {
+	return sliceutils.Join(n.IPs, ",")
+}
+
+type Block struct {
+	Header *Header
+	Raw    []ping.PingDataPoint
+}
+
+// AddPoint will insert a dataPoint into this block, returning the index into the block in which this was inserted.
+func (b *Block) AddPoint(p ping.PingDataPoint) int {
 	b.Raw = append(b.Raw, p)
 	b.Header.AddPoint(p)
+	return len(b.Raw) - 1
 }
 
 type Stats struct {
 	Min, Max          time.Duration
 	Mean              float64
-	GoodCount         uint
+	GoodCount         uint64
 	Variance          float64
 	StandardDeviation float64
-	PacketsDropped    uint
+	PacketsDropped    uint64
 	sumOfSquares      float64
 }
 
@@ -182,24 +240,25 @@ func Merge(stats ...*Stats) *Stats {
 	panic("todo")
 }
 
-func (s TimeSpan) String() string {
+func (ts TimeSpan) String() string {
 	format := "15:04:05.9999"
+	const firstFormat = "02 Jan 2006 15:04:05.99"
 	const day = 24 * time.Hour
 	const month = 30 * day
 	const year = 12 * month
 	switch {
-	case s.Duration > time.Minute:
+	case ts.Duration > time.Minute:
 		format = "15:04:05.99"
-	case s.Duration > time.Hour:
+	case ts.Duration > time.Hour:
 		format = "15:04:05.99"
-	case s.Duration > day:
+	case ts.Duration > day:
 		format = "06 15:04:05"
-	case s.Duration > month:
+	case ts.Duration > month:
 		format = "Jan 06 15:04"
-	case s.Duration > year:
-		format = "02 Jan 06 15:04"
+	case ts.Duration > year:
+		format = firstFormat
 	}
-	return fmt.Sprintf("%s -> %s (%s)", s.Begin.Format(format), s.End.Format(format), s.Duration.String())
+	return fmt.Sprintf("%s -> %s (%s)", ts.Begin.Format(firstFormat), ts.End.Format(format), ts.Duration.String())
 }
 
 func stringFloatTime(f float64) string {
@@ -274,8 +333,4 @@ func (s Stats) longString() string {
 	return b.String()
 }
 
-func (h Header) String() string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "%s | %s", h.Span.String(), h.Stats.String())
-	return b.String()
-}
+const currentDataVersion = 1

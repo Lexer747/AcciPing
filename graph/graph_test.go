@@ -22,7 +22,6 @@ import (
 	"github.com/Lexer747/AcciPing/graph/terminal/th"
 	"github.com/Lexer747/AcciPing/ping"
 	"github.com/Lexer747/AcciPing/utils/check"
-	"github.com/Lexer747/AcciPing/utils/errors"
 	"github.com/stretchr/testify/require"
 )
 
@@ -30,7 +29,7 @@ func TestSmallDrawing(t *testing.T) {
 	t.Parallel()
 	test := DrawingTest{
 		Size: terminal.Size{Height: 5, Width: 20},
-		Values: []ping.PingResults{
+		Values: []ping.PingDataPoint{
 			{Duration: 1 * time.Second, Timestamp: time.Time{}.Add(1 * time.Second)},
 			{Duration: 2 * time.Second, Timestamp: time.Time{}.Add(2 * time.Second)},
 			{Duration: 3 * time.Second, Timestamp: time.Time{}.Add(3 * time.Second)},
@@ -44,7 +43,7 @@ func TestNegativeGradientDrawing(t *testing.T) {
 	t.Parallel()
 	test := DrawingTest{
 		Size: terminal.Size{Height: 15, Width: 80},
-		Values: []ping.PingResults{
+		Values: []ping.PingDataPoint{
 			{Duration: 6 * time.Second, Timestamp: time.Time{}.Add(1 * time.Second)},
 			{Duration: 5 * time.Second, Timestamp: time.Time{}.Add(2 * time.Second)},
 			{Duration: 4 * time.Second, Timestamp: time.Time{}.Add(3 * time.Second)},
@@ -61,19 +60,19 @@ func TestPacketLossDrawing(t *testing.T) {
 	t.Parallel()
 	test := DrawingTest{
 		Size: terminal.Size{Height: 15, Width: 80},
-		Values: []ping.PingResults{
+		Values: []ping.PingDataPoint{
 			{Duration: 6 * time.Second, Timestamp: time.Time{}.Add(1 * time.Second)},
 			{Duration: 5 * time.Second, Timestamp: time.Time{}.Add(2 * time.Second)},
-			ping.NewTestPingResult(errors.Errorf("oh noes"), time.Time{}.Add(3*time.Second)),
-			ping.NewTestPingResult(errors.Errorf("oh noes"), time.Time{}.Add(4*time.Second)),
-			ping.NewTestPingResult(errors.Errorf("oh noes"), time.Time{}.Add(5*time.Second)),
+			{DropReason: ping.TestDrop, Timestamp: time.Time{}.Add(3 * time.Second)},
+			{DropReason: ping.TestDrop, Timestamp: time.Time{}.Add(4 * time.Second)},
+			{DropReason: ping.TestDrop, Timestamp: time.Time{}.Add(5 * time.Second)},
 			{Duration: 4 * time.Second, Timestamp: time.Time{}.Add(6 * time.Second)},
 			{Duration: 3 * time.Second, Timestamp: time.Time{}.Add(7 * time.Second)},
 			{Duration: 2 * time.Second, Timestamp: time.Time{}.Add(8 * time.Second)},
-			ping.NewTestPingResult(errors.Errorf("oh noes"), time.Time{}.Add(9*time.Second)),
-			ping.NewTestPingResult(errors.Errorf("oh noes"), time.Time{}.Add(10*time.Second)),
+			{DropReason: ping.TestDrop, Timestamp: time.Time{}.Add(9 * time.Second)},
+			{DropReason: ping.TestDrop, Timestamp: time.Time{}.Add(10 * time.Second)},
 			{Duration: 7 * time.Second, Timestamp: time.Time{}.Add(11 * time.Second)},
-			ping.NewTestPingResult(errors.Errorf("oh noes"), time.Time{}.Add(12*time.Second)),
+			{DropReason: ping.TestDrop, Timestamp: time.Time{}.Add(12 * time.Second)},
 			{Duration: 4 * time.Second, Timestamp: time.Time{}.Add(13 * time.Second)},
 			{Duration: 4 * time.Second, Timestamp: time.Time{}.Add(14 * time.Second)},
 			{Duration: 13 * time.Second, Timestamp: time.Time{}.Add(15 * time.Second)},
@@ -87,7 +86,7 @@ func TestLargeDrawing(t *testing.T) {
 	t.Parallel()
 	test := DrawingTest{
 		Size: terminal.Size{Height: 35, Width: 160},
-		Values: []ping.PingResults{
+		Values: []ping.PingDataPoint{
 			{Duration: 1 * time.Second, Timestamp: time.Time{}.Add(1 * time.Second)},
 			{Duration: 2 * time.Second, Timestamp: time.Time{}.Add(2 * time.Second)},
 			{Duration: 3 * time.Second, Timestamp: time.Time{}.Add(3 * time.Second)},
@@ -103,7 +102,7 @@ func TestManyDrawing(t *testing.T) {
 	rng := rand.New(rand.NewPCG(4, 4)) //nolint:gosec
 	test := DrawingTest{
 		Size: terminal.Size{Height: 25, Width: 100},
-		Values: []ping.PingResults{
+		Values: []ping.PingDataPoint{
 			{
 				Duration:  time.Duration(rng.Float64() * float64(10*time.Millisecond)),
 				Timestamp: time.Time{}.Add(1*time.Second + time.Duration(rng.Float64()*float64(time.Second))),
@@ -174,9 +173,9 @@ func TestThousandsDrawing(t *testing.T) {
 	t.Parallel()
 	// Fixed seed, used in testing only, not sec sensitive
 	rng := rand.New(rand.NewPCG(5, 5)) //nolint:gosec
-	generated := make([]ping.PingResults, 5000)
+	generated := make([]ping.PingDataPoint, 5000)
 	for i := range generated {
-		generated[i] = ping.PingResults{
+		generated[i] = ping.PingDataPoint{
 			Duration:  time.Duration(rng.Float64() * float64(10*time.Millisecond)),
 			Timestamp: time.Time{}.Add(time.Duration(i)*time.Second + time.Duration(rng.Float64()*float64(time.Second))),
 		}
@@ -191,7 +190,7 @@ func TestThousandsDrawing(t *testing.T) {
 
 type DrawingTest struct {
 	Size         terminal.Size
-	Values       []ping.PingResults
+	Values       []ping.PingDataPoint
 	ExpectedFile string
 }
 
@@ -201,7 +200,7 @@ type DrawingTest struct {
 func updateDrawingTest(t *testing.T, test DrawingTest) {
 	t.Helper()
 	actual := drawGraph(t, test.Size, test.Values)
-	err := os.WriteFile(test.ExpectedFile, []byte(strings.Join(actual, "\n")), os.ModePerm)
+	err := os.WriteFile(test.ExpectedFile, []byte(strings.Join(actual, "\n")), 0o777)
 	require.NoError(t, err)
 	t.Fatal("Only call update drawing once")
 }
@@ -215,7 +214,7 @@ func drawingTest(t *testing.T, test DrawingTest) {
 	actualJoined := strings.Join(actualStrings, "\n")
 	actualOutput := test.ExpectedFile + ".actual"
 	if string(expectedBytes) != actualJoined {
-		err := os.WriteFile(actualOutput, []byte(actualJoined), os.ModePerm)
+		err := os.WriteFile(actualOutput, []byte(actualJoined), 0o777)
 		require.NoError(t, err)
 		t.Fatalf("Diff in outputs see %s", actualOutput)
 	} else {
@@ -223,7 +222,7 @@ func drawingTest(t *testing.T, test DrawingTest) {
 	}
 }
 
-func drawGraph(t *testing.T, size terminal.Size, input []ping.PingResults) []string {
+func drawGraph(t *testing.T, size terminal.Size, input []ping.PingDataPoint) []string {
 	t.Helper()
 	if len(input) == 1 {
 		panic("drawGraph test doesn't work on inputs size 1")
@@ -260,14 +259,14 @@ func initTestGraph(t *testing.T, size terminal.Size) (*graph.Graph, func(), erro
 	return g, func() { stdin.WriteCtrlC(t) }, err
 }
 
-func eval(t *testing.T, g *graph.Graph, input []ping.PingResults) string {
+func eval(t *testing.T, g *graph.Graph, input []ping.PingDataPoint) string {
 	t.Helper()
 	for _, p := range input {
-		g.AddPoint(p)
+		g.AddPoint(ping.PingResults{Data: p, IP: []byte{}})
 	}
-	require.Equal(t, len(input), g.Size())
+	require.Equal(t, int64(len(input)), g.Size())
 	actual := g.ComputeFrame()
-	require.Equal(t, len(input), g.Size())
+	require.Equal(t, int64(len(input)), g.Size())
 	return actual
 }
 

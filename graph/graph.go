@@ -8,12 +8,14 @@ package graph
 
 import (
 	"context"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/Lexer747/AcciPing/graph/data"
 	"github.com/Lexer747/AcciPing/graph/terminal"
 	"github.com/Lexer747/AcciPing/ping"
+	"github.com/Lexer747/AcciPing/utils/errors"
 )
 
 type Graph struct {
@@ -30,13 +32,23 @@ type Graph struct {
 	lastFrame frame
 }
 
-func NewGraph(ctx context.Context, input chan ping.PingResults, t *terminal.Terminal, pingsPerMinute float64, url string) (*Graph, error) {
+func NewGraph(ctx context.Context, input chan ping.PingResults, t *terminal.Terminal, pingsPerMinute float64, URL string) (*Graph, error) {
+	return NewGraphWithData(ctx, input, t, pingsPerMinute, data.NewData(URL))
+}
+
+func NewGraphWithData(
+	ctx context.Context,
+	input chan ping.PingResults,
+	t *terminal.Terminal,
+	pingsPerMinute float64,
+	data *data.Data,
+) (*Graph, error) {
 	g := &Graph{
 		Term:           t,
-		data:           data.NewData(),
+		data:           data,
 		dataMutex:      &sync.Mutex{},
 		dataChannel:    input,
-		url:            url,
+		url:            data.URL,
 		pingsPerMinute: pingsPerMinute,
 		sinkAlive:      true,
 	}
@@ -85,7 +97,7 @@ func (g *Graph) LastFrame() string {
 		"",
 	)
 }
-func (g *Graph) Size() int {
+func (g *Graph) Size() int64 {
 	g.dataMutex.Lock()
 	defer g.dataMutex.Unlock()
 	return g.data.TotalCount
@@ -97,14 +109,22 @@ func (g *Graph) ComputeFrame() string {
 func (g *Graph) Summarize() string {
 	g.dataMutex.Lock()
 	defer g.dataMutex.Unlock()
-	raw := ""
-	for _, block := range g.data.Blocks {
-		for _, p := range block.Raw {
-			raw += p.String() + "\n"
-		}
-	}
+	return g.data.String()
+}
 
-	return raw + g.data.Header.String()
+func (g *Graph) WriteToNewFile(filename string) error {
+	f, err := os.OpenFile(filename, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o777) // 777 = rw-rw-rw
+	if err != nil && errors.Is(err, os.ErrExist) {
+		// TODO document other APIs and link errors
+		return errors.Wrapf(err, "WriteToNewFile Will not overwrite file %q, use other flags.", filename)
+	} else if err != nil {
+		// Permissions, etc
+		return errors.Wrap(err, "WriteToNewFile")
+	}
+	defer f.Close()
+	g.dataMutex.Lock()
+	defer g.dataMutex.Unlock()
+	return g.data.AsCompact(f)
 }
 
 func (g *Graph) sink(ctx context.Context) {
@@ -126,7 +146,7 @@ func (g *Graph) sink(ctx context.Context) {
 }
 
 type frame struct {
-	PacketCount  int
+	PacketCount  int64
 	yAxis        yAxis
 	xAxis        xAxis
 	insideFrame  string

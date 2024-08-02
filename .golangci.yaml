@@ -49,6 +49,9 @@ linters-settings:
   gosec:
     excludes:
       - G306 # Too noisy
+  paralleltest:
+    # This can be a red-herring, there's no way to teach it :(
+    ignore-missing-subtests: true
 
 
 linters:

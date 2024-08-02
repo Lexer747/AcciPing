@@ -8,13 +8,15 @@ package data_test
 
 import (
 	"fmt"
+	"math/rand/v2"
+	"net"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Lexer747/AcciPing/graph/data"
 	"github.com/Lexer747/AcciPing/ping"
-	"github.com/Lexer747/AcciPing/utils/errors"
 	"github.com/Lexer747/AcciPing/utils/sliceutils"
 	"github.com/Lexer747/AcciPing/utils/th"
 	"github.com/stretchr/testify/assert"
@@ -126,8 +128,8 @@ func TestStats(t *testing.T) {
 			assert.Equal(t, test.ExpectedMax, asSingles.Max, "asSingles Max")
 			assert.Equal(t, test.ExpectedMin, asSlice.Min, "asSlice Min")
 			assert.Equal(t, test.ExpectedMin, asSingles.Min, "asSingles Min")
-			assert.Equal(t, uint(len(test.Values)), asSlice.GoodCount, "asSlice Count")
-			assert.Equal(t, uint(len(test.Values)), asSingles.GoodCount, "asSingles Count")
+			assert.Equal(t, uint64(len(test.Values)), asSlice.GoodCount, "asSlice Count")
+			assert.Equal(t, uint64(len(test.Values)), asSingles.GoodCount, "asSingles Count")
 		})
 	}
 }
@@ -172,13 +174,13 @@ func TestData(t *testing.T) {
 
 	testCases := []DataTestCase{
 		{
-			Values: []ping.PingResults{
+			Values: sameIP([]ping.PingDataPoint{
 				{Duration: 5 * time.Millisecond, Timestamp: origin},
 				{Duration: 6 * time.Millisecond, Timestamp: origin.Add(time.Minute)},
 				{Duration: 5 * time.Millisecond, Timestamp: origin.Add(2 * time.Minute)},
 				{Duration: 7 * time.Millisecond, Timestamp: origin.Add(3 * time.Minute)},
 				{Duration: 3 * time.Millisecond, Timestamp: origin.Add(4 * time.Minute)},
-			},
+			}),
 			ExpectedGraphSpan: data.TimeSpan{
 				Begin:    origin,
 				End:      origin.Add(4 * time.Minute),
@@ -193,18 +195,22 @@ func TestData(t *testing.T) {
 			ExpectedTotalCount: 5,
 		},
 		{
-			Values: []ping.PingResults{
-				{Duration: 5 * time.Nanosecond, Timestamp: origin},
-				{Duration: 6 * time.Nanosecond, Timestamp: origin.Add(time.Nanosecond)},
-				{Duration: 5 * time.Nanosecond, Timestamp: origin.Add(2 * time.Nanosecond)},
-				{Duration: 7 * time.Nanosecond, Timestamp: origin.Add(3 * time.Nanosecond)},
-				{Duration: 3 * time.Nanosecond, Timestamp: origin.Add(4 * time.Nanosecond)},
-				{Duration: 5 * time.Nanosecond, Timestamp: origin.Add(5 * time.Nanosecond)},
-				{Duration: 6 * time.Nanosecond, Timestamp: origin.Add(6 * time.Nanosecond)},
-				{Duration: 5 * time.Nanosecond, Timestamp: origin.Add(7 * time.Nanosecond)},
-				{Duration: 7 * time.Nanosecond, Timestamp: origin.Add(8 * time.Nanosecond)},
-				{Duration: 3 * time.Nanosecond, Timestamp: origin.Add(9 * time.Nanosecond)},
-			},
+			Values: slices.Concat(
+				specificIP([]ping.PingDataPoint{
+					{Duration: 5 * time.Nanosecond, Timestamp: origin},
+					{Duration: 6 * time.Nanosecond, Timestamp: origin.Add(time.Nanosecond)},
+					{Duration: 5 * time.Nanosecond, Timestamp: origin.Add(2 * time.Nanosecond)},
+					{Duration: 7 * time.Nanosecond, Timestamp: origin.Add(3 * time.Nanosecond)},
+					{Duration: 3 * time.Nanosecond, Timestamp: origin.Add(4 * time.Nanosecond)},
+				}, net.IPv4allrouter),
+				specificIP([]ping.PingDataPoint{
+					{Duration: 5 * time.Nanosecond, Timestamp: origin.Add(5 * time.Nanosecond)},
+					{Duration: 6 * time.Nanosecond, Timestamp: origin.Add(6 * time.Nanosecond)},
+					{Duration: 5 * time.Nanosecond, Timestamp: origin.Add(7 * time.Nanosecond)},
+					{Duration: 7 * time.Nanosecond, Timestamp: origin.Add(8 * time.Nanosecond)},
+					{Duration: 3 * time.Nanosecond, Timestamp: origin.Add(9 * time.Nanosecond)},
+				}, net.IPv4bcast),
+			),
 			BlockSize: 5,
 			ExpectedGraphSpan: data.TimeSpan{
 				Begin:    origin,
@@ -218,8 +224,8 @@ func TestData(t *testing.T) {
 				StandardDeviation: asFloat64(1.3984118, time.Nanosecond),
 			},
 			BlockTest: &BlockTest{
-				// This test has enough data to split the storage over multiple blocks, the blocks are
-				// near identical except timestamps.
+				// This test has two IPs so will need two blocks. The actual blocks are designed to be
+				// identical except IP.
 				ExpectedBlocks: []data.Block{{
 					Header: &data.Header{
 						Stats: &data.Stats{
@@ -228,7 +234,7 @@ func TestData(t *testing.T) {
 							Variance:          2.2,
 							StandardDeviation: asFloat64(1.4832397, time.Nanosecond),
 						},
-						Span: &data.TimeSpan{Begin: origin, End: origin.Add(4 * time.Nanosecond), Duration: 4 * time.Nanosecond},
+						TimeSpan: &data.TimeSpan{Begin: origin, End: origin.Add(4 * time.Nanosecond), Duration: 4 * time.Nanosecond},
 					},
 				}, {
 					Header: &data.Header{
@@ -238,7 +244,7 @@ func TestData(t *testing.T) {
 							Variance:          2.2,
 							StandardDeviation: asFloat64(1.4832397, time.Nanosecond),
 						},
-						Span: &data.TimeSpan{
+						TimeSpan: &data.TimeSpan{
 							Begin:    origin.Add(5 * time.Nanosecond),
 							End:      origin.Add(9 * time.Nanosecond),
 							Duration: 4 * time.Nanosecond,
@@ -250,13 +256,13 @@ func TestData(t *testing.T) {
 			ExpectedTotalCount: 10,
 		},
 		{
-			Values: []ping.PingResults{
+			Values: sameIP([]ping.PingDataPoint{
 				{Duration: 15 * time.Millisecond, Timestamp: origin},
 				{Duration: 16 * time.Millisecond, Timestamp: origin.Add(10 * time.Minute)},
-				ping.NewTestPingResult(errors.Errorf("oh noes"), origin.Add(20*time.Minute)),
+				{DropReason: ping.TestDrop, Timestamp: origin.Add(20 * time.Minute)},
 				{Duration: 17 * time.Millisecond, Timestamp: origin.Add(30 * time.Minute)},
 				{Duration: 13 * time.Millisecond, Timestamp: origin.Add(40 * time.Minute)},
-			},
+			}),
 			ExpectedGraphSpan: data.TimeSpan{
 				Begin:    origin,
 				End:      origin.Add(40 * time.Minute),
@@ -277,7 +283,7 @@ func TestData(t *testing.T) {
 							Variance:          2_916_666_700_000,
 							StandardDeviation: asFloat64(1.7078251, time.Millisecond),
 						},
-						Span: &data.TimeSpan{Begin: origin, End: origin.Add(40 * time.Minute), Duration: 40 * time.Minute},
+						TimeSpan: &data.TimeSpan{Begin: origin, End: origin.Add(40 * time.Minute), Duration: 40 * time.Minute},
 					},
 				}},
 			},
@@ -290,15 +296,12 @@ func TestData(t *testing.T) {
 		}), ",")
 		t.Run(fmt.Sprintf("%d:[%s]", i, sliceAsStr), func(t *testing.T) {
 			t.Parallel()
-			graphData := data.NewData()
-			if test.BlockSize != 0 {
-				graphData = data.NewData(data.Options{BlockSize: test.BlockSize})
-			}
+			graphData := data.NewData("www.google.com")
 			for _, v := range test.Values {
 				graphData.AddPoint(v)
 			}
 			assertStatsEqual(t, test.ExpectedGraphStats, *graphData.Header.Stats, 3, "global graph header")
-			assertTimeSpanEqual(t, test.ExpectedGraphSpan, *graphData.Header.Span, "global graph header")
+			assertTimeSpanEqual(t, test.ExpectedGraphSpan, *graphData.Header.TimeSpan, "global graph header")
 			th.AssertFloatEqual(t, test.ExpectedPacketLoss, graphData.Header.Stats.PacketLoss(), 5, "global packet loss percent")
 			if test.BlockTest != nil {
 				blockVerify(t, graphData, test)
@@ -307,13 +310,27 @@ func TestData(t *testing.T) {
 	}
 }
 
+func specificIP(input []ping.PingDataPoint, IP net.IP) []ping.PingResults {
+	return sliceutils.Map(input, func(in ping.PingDataPoint) ping.PingResults {
+		return ping.PingResults{
+			Data: in,
+			IP:   IP,
+		}
+	})
+}
+
+func sameIP(input []ping.PingDataPoint) []ping.PingResults {
+	return specificIP(input, net.IPv4allrouter)
+}
+
+// NOTE doesn't iterate the data in duration order.
 func blockVerify(t *testing.T, graphData *data.Data, test DataTestCase) {
 	t.Helper()
 	require.Len(t, graphData.Blocks, len(test.BlockTest.ExpectedBlocks))
 	for i, block := range graphData.Blocks {
 		expectedBlock := test.BlockTest.ExpectedBlocks[i]
-		assertStatsEqual(t, *expectedBlock.Stats, *block.Header.Stats, 4)
-		assertTimeSpanEqual(t, *expectedBlock.Span, *block.Header.Span, 4)
+		assertStatsEqual(t, *expectedBlock.Header.Stats, *block.Header.Stats, 4)
+		assertTimeSpanEqual(t, *expectedBlock.Header.TimeSpan, *block.Header.TimeSpan, 4)
 		if test.BlockTest.CheckRaw {
 			require.Lenf(t, block.Raw, len(expectedBlock.Raw), "block %d was unexpected len", i)
 			for rawIndex, datum := range block.Raw {
@@ -325,4 +342,97 @@ func blockVerify(t *testing.T, graphData *data.Data, test DataTestCase) {
 
 func asFloat64(scalar float64, t time.Duration) float64 {
 	return scalar * float64(t)
+}
+
+type DataOrderingTestCase struct {
+	Name          string
+	Values        []ping.PingResults
+	ExpectedOrder []ping.PingDataPoint
+	ExpectFailure bool
+}
+
+func TestDataOrdering(t *testing.T) {
+	t.Parallel()
+
+	t1min := ping.PingDataPoint{Duration: 15 * time.Millisecond, Timestamp: origin.Add(1 * time.Minute)}
+	t2min := ping.PingDataPoint{Duration: 25 * time.Millisecond, Timestamp: origin.Add(2 * time.Minute)}
+	t3min := ping.PingDataPoint{Duration: 35 * time.Millisecond, Timestamp: origin.Add(3 * time.Minute)}
+	t4min := ping.PingDataPoint{Duration: 45 * time.Millisecond, Timestamp: origin.Add(4 * time.Minute)}
+	t5min := ping.PingDataPoint{Duration: 55 * time.Millisecond, Timestamp: origin.Add(5 * time.Minute)}
+	t6min := ping.PingDataPoint{Duration: 65 * time.Millisecond, Timestamp: origin.Add(6 * time.Minute)}
+	t7min := ping.PingDataPoint{Duration: 75 * time.Millisecond, Timestamp: origin.Add(7 * time.Minute)}
+	expectedOrder := []ping.PingDataPoint{t1min, t2min, t3min, t4min, t5min, t6min, t7min}
+
+	sorted := []ping.PingResults{
+		{Data: t1min, IP: []byte{}},
+		{Data: t2min, IP: []byte{}},
+		{Data: t3min, IP: []byte{}},
+		{Data: t4min, IP: []byte{}},
+		{Data: t5min, IP: []byte{}},
+		{Data: t6min, IP: []byte{}},
+		{Data: t7min, IP: []byte{}},
+	}
+
+	inc := 0
+
+	testCases := []DataOrderingTestCase{
+		{
+			Name:          "ID",
+			Values:        sorted,
+			ExpectedOrder: expectedOrder,
+		},
+		{
+			Name:          "Shuffled",
+			Values:        sliceutils.Shuffle(sorted),
+			ExpectedOrder: expectedOrder,
+			ExpectFailure: true, // Data should not sort for us. It merely should preserve insertion order for any range of IPs.
+		},
+		{
+			Name: "Incrementing IPs",
+			Values: sliceutils.Map(sorted, func(p ping.PingResults) ping.PingResults {
+				inc++
+				return ping.PingResults{
+					Data:        p.Data,
+					IP:          net.IPv4(byte(inc), 0, 0, 0),
+					InternalErr: nil,
+				}
+			}),
+			ExpectedOrder: expectedOrder,
+		},
+		{
+			Name: "Random IPs",
+			Values: sliceutils.Map(sorted, func(p ping.PingResults) ping.PingResults {
+				// Not a security use of randomness
+				x := rand.Int32() //nolint:gosec
+				return ping.PingResults{
+					Data:        p.Data,
+					IP:          net.IPv4(byte(x), byte(x>>8), byte(x>>16), byte(x>>24)),
+					InternalErr: nil,
+				}
+			}),
+			ExpectedOrder: expectedOrder,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(test.Name, func(t *testing.T) {
+			t.Parallel()
+			graphData := data.NewData("www.google.com")
+			for _, v := range test.Values {
+				graphData.AddPoint(v)
+			}
+			if test.ExpectFailure {
+				collected := make([]ping.PingDataPoint, graphData.TotalCount)
+				for i := range graphData.TotalCount {
+					collected[i] = graphData.Get(i)
+				}
+				assert.NotEqual(t, test.ExpectedOrder, collected)
+			} else {
+				for i := range graphData.TotalCount {
+					cur := graphData.Get(i)
+					assert.Equal(t, test.ExpectedOrder[i], cur)
+				}
+			}
+		})
+	}
 }

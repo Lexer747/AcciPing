@@ -15,3 +15,6 @@
 !.vscode/settings.json
 ## Ignore go debug builds
 __debug_bin**
+
+## Ignore AcciPing dev files:
+dev.pings

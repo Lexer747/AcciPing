@@ -12,12 +12,10 @@ import (
 	"math"
 	"net"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/Lexer747/AcciPing/utils/bytes"
 	"github.com/Lexer747/AcciPing/utils/errors"
-	"github.com/Lexer747/AcciPing/utils/sliceutils"
 
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv4"
@@ -29,8 +27,17 @@ type Ping struct {
 	currentURL string
 	timeout    time.Duration
 
-	addresses *queryCache
+	dnsCacheTrust uint
+	addresses     *queryCache
 }
+
+type DNSCacheTrust string
+
+const (
+	LowTrust     = "Low Trust"
+	NominalTrust = "Nominal Trust"
+	HighTrust    = "High Trust"
+)
 
 func (p *Ping) LastIP() string {
 	if p.addresses == nil {
@@ -45,9 +52,16 @@ func NewPing() *Ping {
 	}
 }
 
+func NewPingWithTrust(trust DNSCacheTrust) *Ping {
+	return &Ping{
+		id:            uint16(os.Getpid() + 1234),
+		dnsCacheTrust: trust.asMaxDropped(),
+	}
+}
+
 func (p *Ping) OneShot(url string) (time.Duration, error) {
 	// first get the ip for a given url
-	cache, err := IPv4DNSQuery(url)
+	cache, err := IPv4DNSQuery(url, p.dnsCacheTrust)
 	if err != nil {
 		return 0, err
 	}
@@ -93,27 +107,68 @@ func (p *Ping) OneShot(url string) (time.Duration, error) {
 }
 
 type PingResults struct {
-	Duration  time.Duration
-	Timestamp time.Time
-	err       error
+	Data        PingDataPoint
+	IP          net.IP
+	InternalErr error
 }
+
+type PingDataPoint struct {
+	Duration   time.Duration
+	Timestamp  time.Time
+	DropReason Dropped
+}
+
+type Dropped byte
+
+const (
+	NotDropped Dropped = iota
+	Timeout
+	DNSFailure
+	BadResponse
+
+	TestDrop = 0xfe
+)
 
 func (p PingResults) String() string {
-	const f = "15:04:05.99"
-	if p.Good() {
-		return fmt.Sprintf("%s| %s", p.Timestamp.Format(f), p.Duration.String())
+	if p.IP == nil && p.InternalErr != nil {
+		return "Internal Error " + p.Data.Timestamp.Format(timestampFormat) + " reason " + p.InternalErr.Error()
+	} else {
+		return p.IP.String() + " | " + p.Data.String()
 	}
-	return fmt.Sprintf("%s| DROPPED, reason %q", p.Timestamp.Format(f), p.Error())
 }
 
-func (p PingResults) Error() string {
-	return p.err.Error()
+func (d Dropped) String() string {
+	switch d {
+	case BadResponse:
+		return "Bad Response"
+	case Timeout:
+		return "Timeout"
+	case DNSFailure:
+		return "DNS Query Failed"
+	case TestDrop:
+		return "Testing A Dropped Packet :)"
+
+	case NotDropped:
+		fallthrough
+	default:
+		return ""
+	}
 }
-func (p PingResults) Dropped() bool {
-	return p.err != nil
+
+const timestampFormat = "15:04:05.99"
+
+func (p PingDataPoint) String() string {
+	if p.Good() {
+		return fmt.Sprintf("%s | %s", p.Timestamp.Format(timestampFormat), p.Duration.String())
+	}
+	return fmt.Sprintf("%s | DROPPED, reason %q", p.Timestamp.Format(timestampFormat), p.DropReason.String())
 }
-func (p PingResults) Good() bool {
-	return p.err == nil
+
+func (p PingDataPoint) Dropped() bool {
+	return p.DropReason != NotDropped
+}
+func (p PingDataPoint) Good() bool {
+	return p.DropReason == NotDropped
 }
 
 func (p *Ping) CreateChannel(ctx context.Context, url string, pingsPerMinute float64, channelSize int) (chan PingResults, error) {
@@ -129,7 +184,7 @@ func (p *Ping) CreateChannel(ctx context.Context, url string, pingsPerMinute flo
 
 	// Block the main thread to init this for the first time (most consumers will want to have a [GetLastIP]
 	// value as soon as this method returns), if we get an error let the main loop do the retying.
-	p.addresses, _ = IPv4DNSQuery(url)
+	p.addresses, _ = IPv4DNSQuery(url, p.dnsCacheTrust)
 
 	rateLimit := p.buildRateLimiting(pingsPerMinute)
 
@@ -158,7 +213,7 @@ func (p *Ping) startChannel(ctx context.Context, client chan PingResults, closer
 
 			if seq, errorDuringLoop = p.pingOnChannel(ctx, timestamp, ip, seq, client, buffer); errorDuringLoop {
 				// Keep track of this address as maybe being unreliable
-				p.addresses.Dropped()
+				p.addresses.Dropped(ip)
 			}
 			select {
 			case <-ctx.Done():
@@ -182,9 +237,9 @@ HARD_RETRY:
 		// Keeping doing a DNS query until we get a valid result, count each failure as a dropped packet
 		for p.addresses == nil {
 			// start again, do a new DNS query
-			p.addresses, err = IPv4DNSQuery(url)
+			p.addresses, err = IPv4DNSQuery(url, p.dnsCacheTrust)
 			if err != nil {
-				client <- packetLoss(timestamp, err)
+				client <- packetLoss(nil, timestamp, DNSFailure)
 				<-rateLimit.C
 				timestamp = time.Now()
 			}
@@ -227,96 +282,33 @@ func PingsPerMinuteToDuration(pingsPerMinute float64) time.Duration {
 	return time.Millisecond * time.Duration(gapBetweenPings)
 }
 
-// queryCache provides an interface for Ping to consume in which we respect the wishes of the servers we are
-// causing load on, if they provide more than one address we should pick one at "random". Given we will re-use
-// addresses from an original query we do the easier job of just round-robin.
-type queryCache struct {
-	m        *sync.Mutex
-	store    []queryCacheItem
-	index    int
-	maxDrops int
-}
-
-func (q *queryCache) GetLastIP() string {
-	q.m.Lock()
-	defer q.m.Unlock()
-	return q.store[q.index].ip.String()
-}
-
-func (q *queryCache) Get() (net.IP, bool) {
-	q.m.Lock()
-	defer q.m.Unlock()
-	if len(q.store) == 1 {
-		if !q.store[0].stale {
-			return q.store[0].ip, true
-		}
-		return nil, false
+func internalErr(IP net.IP, Timestamp time.Time, err error) PingResults {
+	return PingResults{
+		Data:        PingDataPoint{Timestamp: Timestamp},
+		IP:          IP,
+		InternalErr: err,
 	}
-	for start := q.index; start != q.index; q.advance() {
-		r := q.store[q.index]
-		if !r.stale {
-			return r.ip, true
-		}
-	}
-	return nil, false
 }
 
-func (q *queryCache) Dropped() {
-	q.m.Lock()
-	defer q.m.Unlock()
-	cur := q.store[q.index]
-	stale := cur.dropCount >= q.maxDrops
-	q.store[q.index] = queryCacheItem{
-		ip:        cur.ip,
-		stale:     stale,
-		dropCount: cur.dropCount + 1,
+func packetLoss(IP net.IP, Timestamp time.Time, Reason Dropped) PingResults {
+	return PingResults{
+		Data: PingDataPoint{
+			Timestamp:  Timestamp,
+			DropReason: Reason,
+		},
+		IP: IP,
 	}
-	q.advance()
 }
 
-func (q *queryCache) advance() {
-	q.index = (q.index + 1) % len(q.store)
-}
-
-type queryCacheItem struct {
-	ip        net.IP
-	stale     bool
-	dropCount int
-}
-
-func IPv4DNSQuery(url string) (*queryCache, error) {
-	ips, err := net.LookupIP(url)
-	if err != nil {
-		return nil, errors.Wrapf(err, "couldn't DNS query %q", url)
+func goodPacket(IP net.IP, Duration time.Duration, Timestamp time.Time) PingResults {
+	return PingResults{
+		Data: PingDataPoint{
+			Duration:   Duration,
+			Timestamp:  Timestamp,
+			DropReason: NotDropped,
+		},
+		IP: IP,
 	}
-	if len(ips) == 0 {
-		return nil, errors.Errorf("Couldn't resolve %q to any address. Network down?", url)
-	}
-
-	results := make([]net.IP, 0, len(ips))
-	for _, ip := range ips {
-		if isIpv4(ip) {
-			results = append(results, ip)
-			break
-		}
-	}
-	if len(results) == 0 {
-		return nil, errors.Errorf("Couldn't resolve %q to valid IPv4 address, ipv6 addresses are not supported", url)
-	}
-
-	cache := sliceutils.Map(results, func(ip net.IP) queryCacheItem { return queryCacheItem{ip: ip} })
-	return &queryCache{
-		m:     &sync.Mutex{},
-		store: cache,
-	}, nil
-}
-
-func packetLoss(Timestamp time.Time, Error error) PingResults {
-	return PingResults{Duration: -314, Timestamp: Timestamp, err: Error}
-}
-
-func goodPacket(Duration time.Duration, Timestamp time.Time) PingResults {
-	return PingResults{Duration: Duration, Timestamp: Timestamp, err: nil}
 }
 
 // pingOnChannel performs a single ping to the already discovered IP, using the buffer as a scratch buffer,
@@ -333,26 +325,30 @@ func (p *Ping) pingOnChannel(
 	// Can gain some speed here by not remaking this each time, only to change the sequence number.
 	raw, err := p.makeOutgoingPacket(seq)
 	if err != nil {
-		client <- packetLoss(timestamp, err)
+		client <- internalErr(selectedIP, timestamp, err)
 		return seq, true
 	}
 
 	// Actually write the echo request onto the connection:
 	if err = p.writeEcho(selectedIP, raw); err != nil {
-		client <- packetLoss(timestamp, err)
+		client <- internalErr(selectedIP, timestamp, err)
 		return seq, true
 	}
 	begin := time.Now()
-	timeoutCtx, _ := context.WithTimeoutCause(ctx, p.timeout, pingTimeout{Duration: p.timeout})
+	timeout := pingTimeout{Duration: p.timeout}
+	timeoutCtx, _ := context.WithTimeoutCause(ctx, p.timeout, timeout)
 	n, err := p.pingRead(timeoutCtx, buffer)
 	duration := time.Since(begin)
-	if err != nil {
-		client <- packetLoss(timestamp, errors.Wrapf(err, "couldn't read packet from %q", p.currentURL))
+	if err != nil && errors.Is(err, timeout) {
+		client <- packetLoss(selectedIP, timestamp, Timeout)
+		return seq, true
+	} else if err != nil {
+		client <- internalErr(selectedIP, timestamp, errors.Wrapf(err, "couldn't read packet from %q", p.currentURL))
 		return seq, true
 	}
 	received, err := icmp.ParseMessage(protocolICMP, buffer[:n])
 	if err != nil {
-		client <- packetLoss(timestamp, errors.Wrapf(err, "couldn't parse raw packet from %q, %+v", p.currentURL, received))
+		client <- internalErr(selectedIP, timestamp, errors.Wrapf(err, "couldn't parse raw packet from %q, %+v", p.currentURL, received))
 		return seq, true
 	}
 	switch received.Type {
@@ -360,10 +356,10 @@ func (p *Ping) pingOnChannel(
 		// Clear the buffer for next packet
 		bytes.Clear(buffer, n)
 		seq++ // Deliberate wrap-around
-		client <- goodPacket(duration, timestamp)
+		client <- goodPacket(selectedIP, duration, timestamp)
 		return seq, false
 	default:
-		client <- packetLoss(timestamp, errors.Errorf("Didn't receive a good message back from %q, got Code: %d", p.currentURL, received.Code))
+		client <- packetLoss(selectedIP, timestamp, BadResponse)
 		return seq, true
 	}
 }
@@ -452,6 +448,14 @@ func isIpv4(ip net.IP) bool {
 
 var listenAddr = net.IPv4zero
 
-func NewTestPingResult(err error, timestamp time.Time) PingResults {
-	return PingResults{Timestamp: timestamp, err: err}
+func (dct DNSCacheTrust) asMaxDropped() uint {
+	switch dct {
+	case LowTrust:
+		return 0
+	case NominalTrust:
+		return 1
+	case HighTrust:
+		return 5
+	}
+	panic("exhaustive:enforce")
 }
