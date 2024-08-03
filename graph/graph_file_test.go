@@ -33,15 +33,25 @@ func TestFiles(t *testing.T) {
 		Size:               terminal.Size{Height: 25, Width: 80},
 		ExpectedOutputFile: "data/testdata/small-2-02-08-2024.frame",
 	}.Run)
-	t.Run("Small", FileTest{
+	t.Run("Medium", FileTest{
 		FileName:           "data/testdata/medium-395-02-08-2024.pings",
 		Size:               terminal.Size{Height: 25, Width: 80},
 		ExpectedOutputFile: "data/testdata/medium-395-02-08-2024.frame",
 	}.Run)
-	t.Run("Small", FileTest{
+	t.Run("Medium with Drops", FileTest{
 		FileName:           "data/testdata/medium-309-with-induced-drops-02-08-2024.pings",
 		Size:               terminal.Size{Height: 25, Width: 80},
 		ExpectedOutputFile: "data/testdata/medium-309-with-induced-drops-02-08-2024.frame",
+	}.Run)
+	t.Run("Medium with minute Gaps", FileTest{
+		FileName:           "data/testdata/medium-minute-gaps.pings",
+		Size:               terminal.Size{Height: 25, Width: 80},
+		ExpectedOutputFile: "data/testdata/medium-minute-gaps.frame",
+	}.Run)
+	t.Run("Medium with hour Gaps", FileTest{
+		FileName:           "data/testdata/medium-hour-gaps.pings",
+		Size:               terminal.Size{Height: 25, Width: 80},
+		ExpectedOutputFile: "data/testdata/medium-hour-gaps.frame",
 	}.Run)
 }
 

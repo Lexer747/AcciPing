@@ -25,6 +25,7 @@ const (
 	HeaderID   Identifier = 4
 	DataID     Identifier = 5
 	NetworkID  Identifier = 6
+	RunsID     Identifier = 7
 
 	_ Identifier = 0xff
 )
@@ -53,12 +54,15 @@ type Compact interface {
 	FromCompact(input []byte) (int, error)
 }
 
-var _ Compact = (&Data{})
 var _ Compact = (&Block{})
+var _ Compact = (&DataIndexes{})
+var _ Compact = (&Data{})
 var _ Compact = (&Header{})
 var _ Compact = (&Network{})
+var _ Compact = (&Stats{})
+var _ Compact = (&Runs{})
+var _ Compact = (&Run{})
 var _ Compact = (&TimeSpan{})
-var _ Compact = (&DataIndexes{})
 
 type PhasedWrite = func(ret []byte) int
 
@@ -72,7 +76,9 @@ func (d *Data) AsCompact(w io.Writer) error {
 func (d *Data) write(ret []byte) int {
 	networkHeader, networkData := d.Network.twoPhaseWrite()
 	i := writeByte(ret, DataID)
-	i += writeByte(ret[i:], d.Version)
+	// We explicitly do not preserve the version in this data, we have migrated and the write code only ever
+	// supports the latest version.
+	i += writeByte(ret[i:], currentDataVersion)
 	i += writeLen(ret[i:], d.InsertOrder)
 	i += writeInt64(ret[i:], d.TotalCount)
 	i += networkHeader(ret[i:])
@@ -85,6 +91,7 @@ func (d *Data) write(ret []byte) int {
 		i += header(ret[i:])
 	}
 	i += writeStringLen(ret[i:], d.URL)
+	i += d.Runs.write(ret[i:])
 	i += d.Header.write(ret[i:])
 
 	// Phase 2 the variable length data
@@ -110,7 +117,30 @@ func (d *Data) FromCompact(input []byte) (int, error) {
 	if err != nil {
 		return i, errors.Wrap(err, "while reading compact Data")
 	}
-	i += readByte(input[i:], &d.Version)
+	i += readByte(input[i:], &d.PingsMeta)
+	switch d.PingsMeta {
+	case noRuns:
+		n, err := d.readVersion1(i, input)
+		if err != nil {
+			return i, errors.Wrap(err, "while reading compact Data")
+		}
+		i += n
+		d.Migrate()
+		return i, nil
+	case runsWithNoIndex, currentDataVersion:
+		n, err := d.readVersion2(i, input)
+		if err != nil {
+			return i, errors.Wrap(err, "while reading compact Data")
+		}
+		i += n
+		d.Migrate()
+		return i, nil
+	default:
+		panic("exhaustive:enforce")
+	}
+}
+
+func (d *Data) readVersion2(i int, input []byte) (int, error) {
 	insertOrderLen := 0
 	i += readLen(input[i:], &insertOrderLen)
 	i += readInt64(input[i:], &d.TotalCount)
@@ -121,7 +151,71 @@ func (d *Data) FromCompact(input []byte) (int, error) {
 		return i, errors.Wrap(err, "while reading compact Data")
 	}
 	i += n
-	i += readInt(input[i:], &n) // drop block header len, we know it's fixed until new versions are introduced
+	// drop block header len, we know it's fixed until new versions are introduced
+	i += readInt(input[i:], &n)
+	blockLen := 0
+	i += readLen(input[i:], &blockLen)
+	d.Blocks = make([]*Block, blockLen)
+	blockSizes := make([]*int, blockLen)
+	blockReads := make([]BlockRead, blockLen)
+	for index := range blockLen {
+		d.Blocks[index] = &Block{}
+		blockSizes[index] = new(int)
+		header, data := d.Blocks[index].twoPhaseRead()
+		n, err := header(input[i:], blockSizes[index])
+		if err != nil {
+			return i, errors.Wrap(err, "while reading compact Data")
+		}
+		i += n
+		blockReads[index] = data
+	}
+	URLLen := 0
+	i += readLen(input[i:], &URLLen)
+	if d.Runs == nil {
+		d.Runs = &Runs{}
+	}
+	n, err = d.Runs.fromCompact(input[i:], d.PingsMeta)
+	if err != nil {
+		return i, errors.Wrap(err, "while reading compact Data")
+	}
+	i += n
+	n, err = d.Header.FromCompact(input[i:])
+	if err != nil {
+		return i, errors.Wrap(err, "while reading compact Data")
+	}
+	i += n
+
+	// Phase 2 read the variable sized data
+	d.InsertOrder = make([]DataIndexes, insertOrderLen)
+	for index := range d.InsertOrder {
+		insert := &d.InsertOrder[index]
+		n, err := insert.FromCompact(input[i:])
+		if err != nil {
+			return i, errors.Wrap(err, "while reading compact Data")
+		}
+		i += n
+	}
+	i += networkDataReader(input[i:], IPsLen, blockIndexesLen)
+	for index, blockData := range blockReads {
+		i += blockData(input[i:], *blockSizes[index])
+	}
+	i += readString(input[i:], &d.URL, URLLen)
+	return i, nil
+}
+
+func (d *Data) readVersion1(i int, input []byte) (int, error) {
+	insertOrderLen := 0
+	i += readLen(input[i:], &insertOrderLen)
+	i += readInt64(input[i:], &d.TotalCount)
+	networkHeaderReader, networkDataReader := d.Network.twoPhaseRead()
+	var IPsLen, blockIndexesLen int
+	n, err := networkHeaderReader(input[i:], &IPsLen, &blockIndexesLen)
+	if err != nil {
+		return i, errors.Wrap(err, "while reading compact Data")
+	}
+	i += n
+	// drop block header len, we know it's fixed until new versions are introduced
+	i += readInt(input[i:], &n)
 	blockLen := 0
 	i += readLen(input[i:], &blockLen)
 	d.Blocks = make([]*Block, blockLen)
@@ -168,9 +262,11 @@ func (d *Data) byteLen() int {
 	return idLen + // Identifier
 		1 + // Version
 		int64Len + // TotalCount
+		d.Runs.byteLen() +
 		d.Header.byteLen() +
 		d.Network.byteLen() +
-		intLen + // block
+		intLen + // blockHeaderLen
+		// Begin Variable sized items:
 		sliceLenCompact(d.Blocks) +
 		sliceLenFixed(d.InsertOrder, dataIndexesLen) +
 		stringLen(d.URL)
@@ -443,6 +539,90 @@ func (ts *TimeSpan) byteLen() int {
 	return timeSpanLen
 }
 
+func (r *Runs) AsCompact(w io.Writer) error {
+	ret := make([]byte, runsLen)
+	_ = r.write(ret)
+	_, err := w.Write(ret)
+	return err
+}
+
+func (r *Runs) FromCompact(input []byte) (int, error) {
+	return r.fromCompact(input, currentDataVersion)
+}
+func (r *Runs) fromCompact(input []byte, version version) (int, error) {
+	i, err := readID(input, RunsID)
+	if err != nil {
+		return i, errors.Wrap(err, "while reading compact Runs")
+	}
+	if r.DroppedPackets == nil {
+		r.DroppedPackets = &Run{}
+	}
+	if r.GoodPackets == nil {
+		r.GoodPackets = &Run{}
+	}
+	n, err := r.GoodPackets.fromCompact(input[i:], version)
+	if err != nil {
+		return i, errors.Wrap(err, "while reading compact Runs")
+	}
+	i += n
+	n, err = r.DroppedPackets.fromCompact(input[i:], version)
+	if err != nil {
+		return i, errors.Wrap(err, "while reading compact Runs")
+	}
+	i += n
+	return i, nil
+}
+
+func (r *Runs) write(ret []byte) int {
+	i := writeByte(ret, RunsID)
+	i += r.GoodPackets.write(ret[i:])
+	i += r.DroppedPackets.write(ret[i:])
+	return i
+}
+
+func (r *Runs) byteLen() int {
+	return runsLen
+}
+
+func (r *Run) AsCompact(w io.Writer) error {
+	ret := make([]byte, runLen)
+	_ = r.write(ret)
+	_, err := w.Write(ret)
+	return err
+}
+
+func (r *Run) fromCompact(input []byte, version version) (int, error) {
+	switch version {
+	case noRuns:
+		panic("should not be called")
+	case runsWithNoIndex:
+		i := readUint64(input, &r.Longest)
+		i += readUint64(input[i:], &r.Current)
+		return i, nil
+	case currentDataVersion:
+		i := readInt64(input, &r.LongestIndexEnd)
+		i += readUint64(input[i:], &r.Longest)
+		i += readUint64(input[i:], &r.Current)
+		return i, nil
+	}
+	panic("exhaustive:enforce")
+}
+
+func (r *Run) FromCompact(input []byte) (int, error) {
+	return r.fromCompact(input, currentDataVersion)
+}
+
+func (r *Run) write(ret []byte) int {
+	i := writeInt64(ret, r.LongestIndexEnd)
+	i += writeUint64(ret[i:], r.Longest)
+	i += writeUint64(ret[i:], r.Current)
+	return i
+}
+
+func (r *Run) byteLen() int {
+	return runLen
+}
+
 func (di *DataIndexes) AsCompact(w io.Writer) error {
 	ret := make([]byte, di.byteLen())
 	_ = di.write(ret)
@@ -470,16 +650,18 @@ func (di *DataIndexes) byteLen() int {
 const (
 	intLen          = int64Len
 	int64Len        = 8
-	uint64Len       = 8
-	float64Len      = 8
+	uint64Len       = int64Len
+	float64Len      = int64Len
 	timeLen         = int64Len
 	timeDurationLen = int64Len
 	idLen           = 1
-	netIPLen        = 16
+	netIPLen        = 16 // Always store in ipv6 form
 
 	timeSpanLen      = idLen + 2*timeLen + timeDurationLen
 	statsLen         = idLen + 2*timeDurationLen + 4*float64Len + 2*uint64Len
 	headerLen        = idLen + timeSpanLen + statsLen
 	pingDataPointLen = timeDurationLen + timeLen + 1
 	dataIndexesLen   = intLen + intLen
+	runLen           = int64Len + uint64Len + uint64Len
+	runsLen          = idLen + runLen + runLen
 )

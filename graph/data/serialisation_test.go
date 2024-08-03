@@ -112,6 +112,26 @@ func TestCompactDataIndexes(t *testing.T) {
 	testCompacter(t, testDataIndexes, &data.DataIndexes{})
 }
 
+func TestCompactRun(t *testing.T) {
+	t.Parallel()
+	testRun := &data.Run{}
+	testRun.Inc(0)
+	testRun.Inc(1)
+	testRun.Reset()
+	testRun.Inc(3)
+	testCompacter(t, testRun, &data.Run{})
+}
+
+func TestCompactRuns(t *testing.T) {
+	t.Parallel()
+	testRuns := &data.Runs{GoodPackets: &data.Run{}, DroppedPackets: &data.Run{}}
+	testRuns.AddPoint(0, ping.PingDataPoint{DropReason: ping.NotDropped})
+	testRuns.AddPoint(1, ping.PingDataPoint{DropReason: ping.NotDropped})
+	testRuns.AddPoint(2, ping.PingDataPoint{DropReason: ping.TestDrop})
+	testRuns.AddPoint(3, ping.PingDataPoint{DropReason: ping.NotDropped})
+	testCompacter(t, testRuns, &data.Runs{})
+}
+
 func TestCompactEmptyData(t *testing.T) {
 	t.Parallel()
 	testData := data.NewData("www.google.com")
@@ -172,19 +192,32 @@ func TestFiles(t *testing.T) {
 	t.Run("Small",
 		FileTest{
 			FileName:        "testdata/small-2-02-08-2024.pings",
-			ExpectedSummary: "www.google.com: [172.217.16.228] | 02 Aug 2024 20:01:58.66 -> 20:01:59.665 (1.000510378s) | Average μ 8.052048ms | SD σ 122.04µs | Packet Count 2",
+			ExpectedSummary: "www.google.com: PingsMeta#1 [172.217.16.228] | 02 Aug 2024 20:01:58.66 -> 20:01:59.665 (1.000510378s) | Average μ 8.052048ms | SD σ 122.04µs | Packet Count 2 | Longest Streak 2",
 		}.Run,
 	)
 	t.Run("Medium",
 		FileTest{
 			FileName:        "testdata/medium-395-02-08-2024.pings",
-			ExpectedSummary: "www.google.com: [142.250.200.36] | 02 Aug 2024 20:40:41.17 -> 20:47:15.17 (6m34.000424411s) | Average μ 8.404893ms | SD σ 970.911µs | Packet Count 395",
+			ExpectedSummary: "www.google.com: PingsMeta#1 [142.250.200.36] | 02 Aug 2024 20:40:41.17 -> 20:47:15.17 (6m34.000424411s) | Average μ 8.404893ms | SD σ 970.911µs | Packet Count 395 | Longest Streak 395",
 		}.Run,
 	)
 	t.Run("Medium with drops",
 		FileTest{
 			FileName:        "testdata/medium-309-with-induced-drops-02-08-2024.pings",
-			ExpectedSummary: "www.google.com: [142.250.179.228,142.250.200.4] | 02 Aug 2024 21:04:27.56 -> 21:09:51.56 (5m24.000499989s) | Average μ 8.564583ms | SD σ 3.25564ms | PacketLoss 2.6% | Packet Count 309",
+			ExpectedSummary: "www.google.com: PingsMeta#1 [142.250.179.228,142.250.200.4] | 02 Aug 2024 21:04:27.56 -> 21:09:51.56 (5m24.000499989s) | Average μ 8.564583ms | SD σ 3.25564ms | PacketLoss 2.6% | Packet Count 309 | Longest Streak 92 | Longest Drop Streak 2",
+		}.Run,
+	)
+	t.Run("Medium with minute Gaps",
+		FileTest{
+			FileName: "testdata/medium-minute-gaps.pings",
+			// 60 packets but over 21mins
+			ExpectedSummary: "www.google.com: PingsMeta#1 [172.217.16.228,216.58.201.100,216.58.204.68] | 03 Aug 2024 00:41:06.65 -> 01:02:28.1 (21m21.449886808s) | Average μ 8.167942ms | SD σ 180.4µs | Packet Count 67 | Longest Streak 67",
+		}.Run,
+	)
+	t.Run("Medium with hour Gaps",
+		FileTest{
+			FileName:        "testdata/medium-hour-gaps.pings",
+			ExpectedSummary: "www.google.com: PingsMeta#1 [142.250.179.228,172.217.16.228,216.58.201.100,216.58.204.68] | 03 Aug 2024 00:41:06.65 -> 10:55:06.59 (10h13m59.940463026s) | Average μ 8.207511ms | SD σ 1.398049ms | Packet Count 234 | Longest Streak 234",
 		}.Run,
 	)
 }
