@@ -26,7 +26,8 @@ type Data struct {
 	InsertOrder []DataIndexes
 	Blocks      []*Block
 	TotalCount  int64
-	Version     byte
+	Runs        *Runs
+	PingsMeta   version
 }
 
 type DataIndexes struct {
@@ -41,7 +42,8 @@ func NewData(URL string) *Data {
 		InsertOrder: []DataIndexes{},
 		Blocks:      []*Block{},
 		TotalCount:  0,
-		Version:     currentDataVersion,
+		Runs:        &Runs{GoodPackets: &Run{}, DroppedPackets: &Run{}},
+		PingsMeta:   currentDataVersion,
 	}
 	return d
 }
@@ -54,6 +56,7 @@ func (d *Data) AddPoint(p ping.PingResults) {
 	curBlock := d.getBlock(blockIndex)
 	rawIndex := curBlock.AddPoint(p.Data)
 	d.Header.AddPoint(p.Data)
+	d.Runs.AddPoint(d.TotalCount, p.Data)
 	d.TotalCount++
 	d.InsertOrder = append(d.InsertOrder, DataIndexes{
 		BlockIndex: blockIndex,
@@ -94,7 +97,7 @@ func (d *Data) getBlock(blockIndex int) *Block {
 }
 
 func (d *Data) String() string {
-	return fmt.Sprintf("%s: [%s] | %s", d.URL, d.Network.String(), d.Header.String())
+	return fmt.Sprintf("%s: PingsMeta#%d [%s] | %s | %s", d.URL, d.PingsMeta, d.Network.String(), d.Header.String(), d.Runs.String())
 }
 
 // TimeSpan is the time properties of a given thing
@@ -167,6 +170,53 @@ func (n *Network) String() string {
 	return sliceutils.Join(n.IPs, ",")
 }
 
+// Run will store the largest and current run of a given item.
+type Run struct {
+	LongestIndexEnd int64
+	Longest         uint64
+	Current         uint64
+}
+
+func (r *Run) Inc(index int64) {
+	r.Current++
+	if r.Current > r.Longest {
+		r.Longest = r.Current
+		r.LongestIndexEnd = index
+	}
+}
+
+func (r *Run) Reset() {
+	r.Current = 0
+}
+
+// Runs stores the longest consecutive sequence of good and dropped packets
+type Runs struct {
+	GoodPackets    *Run
+	DroppedPackets *Run
+}
+
+func (r *Runs) AddPoint(index int64, p ping.PingDataPoint) {
+	if p.Dropped() {
+		r.GoodPackets.Reset()
+		r.DroppedPackets.Inc(index)
+	} else {
+		r.GoodPackets.Inc(index)
+		r.DroppedPackets.Reset()
+	}
+}
+func (r *Runs) String() string {
+	switch {
+	case r.GoodPackets.Longest == 0 && r.DroppedPackets.Longest == 0:
+		return ""
+	case r.GoodPackets.Longest == 0:
+		return fmt.Sprintf("Longest Drop Streak %d", r.DroppedPackets.Longest)
+	case r.DroppedPackets.Longest == 0:
+		return fmt.Sprintf("Longest Streak %d", r.GoodPackets.Longest)
+	default:
+		return fmt.Sprintf("Longest Streak %d | Longest Drop Streak %d", r.GoodPackets.Longest, r.DroppedPackets.Longest)
+	}
+}
+
 type Block struct {
 	Header *Header
 	Raw    []ping.PingDataPoint
@@ -235,27 +285,22 @@ func (s *Stats) AddPoints(values []time.Duration) {
 	}
 }
 
-func Merge(stats ...*Stats) *Stats {
-	// https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Weighted_incremental_algorithm
-	panic("todo")
-}
-
 func (ts TimeSpan) String() string {
 	format := "15:04:05.9999"
 	const firstFormat = "02 Jan 2006 15:04:05.99"
-	const day = 24 * time.Hour
-	const month = 30 * day
-	const year = 12 * month
+	const halfDay = 12 * time.Hour
+	const halfMonth = 30 * halfDay
+	const halfYear = 12 * halfMonth
 	switch {
 	case ts.Duration > time.Minute:
 		format = "15:04:05.99"
 	case ts.Duration > time.Hour:
 		format = "15:04:05.99"
-	case ts.Duration > day:
+	case ts.Duration > halfDay:
 		format = "06 15:04:05"
-	case ts.Duration > month:
+	case ts.Duration > halfMonth:
 		format = "Jan 06 15:04"
-	case ts.Duration > year:
+	case ts.Duration > halfYear:
 		format = firstFormat
 	}
 	return fmt.Sprintf("%s -> %s (%s)", ts.Begin.Format(firstFormat), ts.End.Format(format), ts.Duration.String())
@@ -333,4 +378,32 @@ func (s Stats) longString() string {
 	return b.String()
 }
 
-const currentDataVersion = 1
+type version byte
+
+const (
+	noRuns version = iota + 1
+	runsWithNoIndex
+	currentDataVersion
+)
+
+func (d *Data) Migrate() {
+	startingVersion := d.PingsMeta
+	// Keep migrating until we are the current version, don't modify the starting version though, we want it preserved.
+	for {
+		switch startingVersion {
+		case noRuns:
+			// This migration is literally the same as the next but without indexes, we may as well just defer this to
+			// the next migration
+		case runsWithNoIndex:
+			d.Runs = &Runs{GoodPackets: &Run{}, DroppedPackets: &Run{}}
+			for i := range d.TotalCount {
+				p := d.Get(i)
+				d.Runs.AddPoint(i, p)
+			}
+		case currentDataVersion:
+			return
+		}
+		// Perform the next migration
+		startingVersion++
+	}
+}

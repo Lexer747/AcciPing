@@ -163,6 +163,7 @@ type DataTestCase struct {
 	ExpectedGraphStats data.Stats
 	ExpectedPacketLoss float64
 	ExpectedTotalCount int
+	ExpectedRuns       data.Runs
 	BlockTest          *BlockTest
 }
 
@@ -192,6 +193,11 @@ func TestData(t *testing.T) {
 				Variance:          2_200_000_000_000, // Variance isn't squared so it gets real big
 				StandardDeviation: asFloat64(1.4832397, time.Millisecond),
 			},
+			ExpectedRuns: data.Runs{GoodPackets: &data.Run{
+				LongestIndexEnd: 4,
+				Longest:         5,
+				Current:         5,
+			}},
 			ExpectedTotalCount: 5,
 		},
 		{
@@ -253,6 +259,11 @@ func TestData(t *testing.T) {
 				}},
 				CheckRaw: false,
 			},
+			ExpectedRuns: data.Runs{GoodPackets: &data.Run{
+				LongestIndexEnd: 9,
+				Longest:         10,
+				Current:         10,
+			}},
 			ExpectedTotalCount: 10,
 		},
 		{
@@ -287,6 +298,15 @@ func TestData(t *testing.T) {
 					},
 				}},
 			},
+			ExpectedRuns: data.Runs{GoodPackets: &data.Run{
+				LongestIndexEnd: 1,
+				Longest:         2,
+				Current:         2,
+			}, DroppedPackets: &data.Run{
+				LongestIndexEnd: 2,
+				Longest:         1,
+				Current:         0,
+			}},
 		},
 	}
 
@@ -306,7 +326,18 @@ func TestData(t *testing.T) {
 			if test.BlockTest != nil {
 				blockVerify(t, graphData, test)
 			}
+			assertRunsEqual(t, test.ExpectedRuns, *graphData.Runs)
 		})
+	}
+}
+
+func assertRunsEqual(t *testing.T, expect, actual data.Runs) {
+	t.Helper()
+	if expect.GoodPackets != nil {
+		require.Equal(t, expect.GoodPackets, actual.GoodPackets)
+	}
+	if expect.DroppedPackets != nil {
+		require.Equal(t, expect.DroppedPackets, actual.DroppedPackets)
 	}
 }
 
