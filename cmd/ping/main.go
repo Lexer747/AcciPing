@@ -18,11 +18,11 @@ func main() {
 	p := ping.NewPing()
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	const google = "www.google.com"
-	channel, err := p.CreateChannel(ctx, google, 30, 0)
+	channel, err := p.CreateChannel(ctx, google, 45, 0)
 	if err != nil {
 		panic(err)
 	}
-	const count = 1000
+	const count = 4
 	fmt.Printf("Pinging to %q (%d times) at %q\n", google, count, p.LastIP())
 	for range count {
 		result := <-channel

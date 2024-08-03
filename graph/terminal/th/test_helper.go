@@ -48,8 +48,8 @@ type TestFile struct {
 	fileName   string
 	m          *sync.Mutex
 	buffer     []byte
-	readIndex  atomic.Int32
-	writeIndex atomic.Int32
+	readIndex  atomic.Int64
+	writeIndex atomic.Int64
 }
 
 func newTestFile(name string) *TestFile {
@@ -82,7 +82,7 @@ func (f *TestFile) Read(p []byte) (n int, err error) {
 		}
 		p[i] = f.buffer[r+i]
 	}
-	f.readIndex.Store(int32(r + toRead))
+	f.readIndex.Store(int64(r + toRead))
 	return toRead, nil
 }
 
@@ -93,7 +93,7 @@ func (f *TestFile) Write(p []byte) (n int, err error) {
 	toGrow := len(f.buffer) + len(p)
 	f.buffer = slices.Grow(f.buffer, toGrow)
 	f.buffer = append(f.buffer, p...)
-	f.writeIndex.Store(int32(toGrow))
+	f.writeIndex.Store(int64(toGrow))
 	return len(p), nil
 }
 

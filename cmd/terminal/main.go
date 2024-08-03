@@ -16,7 +16,7 @@ import (
 )
 
 // A small demo of the terminal API, this program will emit a terminal sized line every time it hears a key,
-// and exits on ctrl+c.
+// and exits on ctrl+c. TL:DR Debug program.
 func main() {
 	// First we need to check if we are running under a terminal
 	t, err := terminal.NewTerminal()

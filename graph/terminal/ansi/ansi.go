@@ -19,12 +19,16 @@ var Home = CursorPosition(1, 1)
 
 func CursorUp(n int) string   { return CSI + s(n) + "A" }
 func CursorDown(n int) string { return CSI + s(n) + "B" }
+
+// CursorForward will emit a no-op for values of [n] less than 0
 func CursorForward(n int) string {
 	if n <= 0 {
 		return ""
 	}
 	return CSI + s(n) + "C"
 }
+
+// CursorBack will emit a no-op for values of [n] less than 0
 func CursorBack(n int) string {
 	if n <= 0 {
 		return ""
@@ -57,7 +61,7 @@ const (
 	ShowCursor = CSI + "?25h"
 )
 
-// Compacted when defaults are passed, some chars may elided:
+// Compacted when defaults are passed, some chars may be elided:
 //
 // > The values are 1-based, and default to '1' (top left corner) if omitted. A sequence such as 'CSI ;5H' is a
 // > synonym for 'CSI 1;5H' as well as 'CSI 17;H' is the same as 'CSI 17H' and 'CSI 17;1H'. [wikipedia]

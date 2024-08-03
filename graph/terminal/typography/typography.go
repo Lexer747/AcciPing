@@ -12,13 +12,20 @@ const (
 	Diamond      = "\u25C6"
 	Multiply     = "\u00D7"
 
-	DownTriangle  = "\u25BC"
-	UpTriangle    = "\u25B2"
-	LeftTriangle  = "\u25C0"
-	RightTriangle = "\u25B6"
+	HollowDownTriangle  = "\u25BD"
+	HollowUpTriangle    = "\u25B3"
+	HollowLeftTriangle  = "\u25C1"
+	HollowRightTriangle = "\u25B7"
 
-	Vertical   = "\u2502"
-	Horizontal = "\u2500"
+	FilledDownTriangle  = "\u25BC"
+	FilledUpTriangle    = "\u25B2"
+	FilledLeftTriangle  = "\u25C0"
+	FilledRightTriangle = "\u25B6"
+
+	Vertical         = "\u2502"
+	Horizontal       = "\u2500"
+	DoubleVertical   = "\u2551"
+	DoubleHorizontal = "\u2550"
 
 	VerySteepUpSlope = "\u002F"
 	SteepUpSlope     = "\u2215"
@@ -33,6 +40,12 @@ const (
 	LightBlock  = "\u2591"
 	MediumBlock = "\u2592"
 	DarkBlock   = "\u2593"
+
+	Square              = "\u25A0"
+	HollowSquare        = "\u25A1"
+	RoundedHollowSquare = "\u25A2"
+	SmallSquare         = "\u25AA"
+	SmallHollowSquare   = "\u25AB"
 
 	BottomLeftSquare  = "\u2596"
 	TopLeftSquare     = "\u2598"

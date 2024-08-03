@@ -48,12 +48,16 @@ func (p *Ping) LastIP() string {
 
 func NewPing() *Ping {
 	return &Ping{
+		//nolint:gosec
+		// G115 overflow is expected and required
 		id: uint16(os.Getpid() + 1234),
 	}
 }
 
 func NewPingWithTrust(trust DNSCacheTrust) *Ping {
 	return &Ping{
+		//nolint:gosec
+		// G115 overflow is expected and required
 		id:            uint16(os.Getpid() + 1234),
 		dnsCacheTrust: trust.asMaxDropped(),
 	}
@@ -88,7 +92,7 @@ func (p *Ping) OneShot(url string) (time.Duration, error) {
 
 	// Now wait for the result
 	buffer := make([]byte, 255)
-	timeoutCtx, _ := context.WithTimeoutCause(context.Background(), time.Second, pingTimeout{Duration: time.Second})
+	timeoutCtx, _ := context.WithTimeoutCause(context.Background(), time.Second, pingTimeout{Duration: 100 * time.Millisecond})
 	n, err := p.pingRead(timeoutCtx, buffer)
 	duration := time.Since(begin)
 	if err != nil {
@@ -131,7 +135,7 @@ const (
 
 func (p PingResults) String() string {
 	if p.IP == nil && p.InternalErr != nil {
-		return "Internal Error " + p.Data.Timestamp.Format(timestampFormat) + " reason " + p.InternalErr.Error()
+		return "Internal Error " + timestampString(p.Data) + " reason " + p.InternalErr.Error()
 	} else {
 		return p.IP.String() + " | " + p.Data.String()
 	}
@@ -155,13 +159,15 @@ func (d Dropped) String() string {
 	}
 }
 
-const timestampFormat = "15:04:05.99"
-
 func (p PingDataPoint) String() string {
 	if p.Good() {
-		return fmt.Sprintf("%s | %s", p.Timestamp.Format(timestampFormat), p.Duration.String())
+		return fmt.Sprintf("%s | %s", timestampString(p), p.Duration.String())
 	}
-	return fmt.Sprintf("%s | DROPPED, reason %q", p.Timestamp.Format(timestampFormat), p.DropReason.String())
+	return fmt.Sprintf("%s | DROPPED, reason %q", timestampString(p), p.DropReason.String())
+}
+
+func timestampString(p PingDataPoint) string {
+	return p.Timestamp.Format(time.RFC3339Nano)
 }
 
 func (p PingDataPoint) Dropped() bool {

@@ -83,6 +83,9 @@ func readIP(b []byte, ip net.IP) int {
 }
 
 func readID(b []byte, id Identifier) (int, error) {
+	if len(b) <= 0 {
+		return 0, errors.Errorf("Cannot read id, not enough bytes")
+	}
 	if id != Identifier(b[0]) {
 		return 0, errors.Errorf("Unexpected id %d != %d", b[0], id)
 	}
@@ -120,26 +123,40 @@ func writeLen[S ~[]T, T any](b []byte, slice S) int {
 }
 
 func readLen(b []byte, i *int) int {
+	//nolint:gosec
+	// G115 if this overflows it means the underlying file was written with a system supporting 64 bits (as it
+	// reached that length of slice), but this current code reading the file is only 32 bits, in which case it
+	// won't be able to store the result anyway.
 	*i = int(binary.LittleEndian.Uint64(b))
 	return int64Len
 }
 
 func writeInt64(b []byte, i int64) int {
+	//nolint:gosec
+	// G115 converting to a uint64 is an overflow but we are simply writing the raw bits to the buffer for later.
 	binary.LittleEndian.PutUint64(b, uint64(i))
 	return int64Len
 }
 
 func readInt64(b []byte, i *int64) int {
+	//nolint:gosec
+	// G115 converting to a int64 is an overflow but we are simply reading the raw bits to the buffer
+	// which started life as a int64.
 	*i = int64(binary.LittleEndian.Uint64(b))
 	return int64Len
 }
 
 func writeInt(b []byte, i int) int {
+	//nolint:gosec
+	// G115 converting to a uint64 is an overflow but we are simply writing the raw bits to the buffer for later.
 	binary.LittleEndian.PutUint64(b, uint64(i))
 	return int64Len
 }
 
 func readInt(b []byte, i *int) int {
+	//nolint:gosec
+	// G115 converting to a int64 is an overflow but we are simply reading the raw bits to the buffer
+	// which started life as a int.
 	*i = int(binary.LittleEndian.Uint64(b))
 	return int64Len
 }

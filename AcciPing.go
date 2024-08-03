@@ -8,14 +8,15 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"os"
 
+	"github.com/Lexer747/AcciPing/files"
 	"github.com/Lexer747/AcciPing/graph"
 	"github.com/Lexer747/AcciPing/graph/data"
 	"github.com/Lexer747/AcciPing/graph/terminal"
 	"github.com/Lexer747/AcciPing/ping"
+	"github.com/Lexer747/AcciPing/utils/check"
 	"github.com/Lexer747/AcciPing/utils/errors"
 	"github.com/Lexer747/AcciPing/utils/siphon"
 )
@@ -36,77 +37,47 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
+	// Now that we have a ping channel which is already running we want to duplicate it, providing one to the
+	// Graph and second to a file writer. This de-couples the processes, we don't want the GUI to affect
+	// storing data and vice versa.
 	graphChannel, fileChannel := siphon.TeeBufferedChannel(ctx, channel, channelSize)
-	go writeToFile(ctx, fileChannel, toUpdate)
+	fileData, err := duplicateData(toUpdate)
+	if err != nil {
+		panic(err.Error())
+	}
+	go writeToFile(ctx, fileData, fileChannel, toUpdate)
 
-	// The graph will take ownership of the data.
+	// The graph will take ownership of the data channel.
 	g, err := graph.NewGraphWithData(ctx, graphChannel, term, pingsPerMinute, existingData)
 	if err != nil {
 		panic(err.Error())
 	}
+	_ = g.Term.ClearScreen(true)
 	// Very high FPS is good for responsiveness in the UI (since it's locked) and re-drawing on a re-size.
-	err = g.Run(ctx, cancelFunc, 60)
+	err = g.Run(ctx, cancelFunc, 120)
 	if err != nil && !errors.Is(err, terminal.UserCancelled) {
 		panic(err.Error())
 	} else {
 		_ = g.Term.ClearScreen(true)
 		g.Term.Print(g.LastFrame())
-		g.Term.Print("\n# Summary\n" + g.Summarize())
+		g.Term.Print("\n# Summary\n" + g.Summarise() + "\n")
 	}
 }
 
-func loadFile() (*data.Data, *os.File) {
-	const demoFilePath = "dev.pings"
-	demoURL := "www.google.com"
-	f, err := os.OpenFile(demoFilePath, os.O_RDONLY, 0)
-	var existingData *data.Data
-	switch {
-	case err != nil && !errors.Is(err, os.ErrNotExist):
-		// Some error we are not expecting
-		panic(err.Error())
-	case err != nil && errors.Is(err, os.ErrNotExist):
-		defer f.Close()
-		// First time, make a new file
-		existingData = data.NewData(demoURL)
-		newFile, err := os.OpenFile(demoFilePath, os.O_CREATE|os.O_RDWR, 0o777)
-		if err != nil {
-			panic(err.Error())
-		}
-		defer newFile.Close()
-		if err = existingData.AsCompact(newFile); err != nil {
-			panic(err.Error())
-		}
-	default:
-		defer f.Close()
-		// File exists, read the data from it
-		// TODO incremental read/writes, get the URL ASAP then start the channel, then incremental continuation.
-		existingData = &data.Data{}
-		fromFile, err := io.ReadAll(f)
-		if err != nil {
-			panic(err.Error())
-		}
-		if _, err = existingData.FromCompact(fromFile); err != nil {
-			panic(err.Error())
-		}
-	}
+const demoFilePath = "dev.pings"
+const demoURL = "www.google.com"
 
-	f, err = os.OpenFile(demoFilePath, os.O_RDWR, 0o777)
+// TODO incremental read/writes, get the URL ASAP then start the channel, then incremental continuation.
+func loadFile() (*data.Data, *os.File) {
+	d, f, err := files.LoadOrCreateFile(demoFilePath, demoURL)
 	if err != nil {
 		panic(err.Error())
 	}
-	fmt.Println(existingData.String())
-	return existingData, f
+	return d, f
 }
 
-func writeToFile(ctx context.Context, input chan ping.PingResults, fileToUpdate *os.File) {
+func writeToFile(ctx context.Context, ourData *data.Data, input chan ping.PingResults, fileToUpdate *os.File) {
 	defer fileToUpdate.Close()
-	ourData := &data.Data{}
-	// Block: To scope this byte slice, we don't want to expose it to the running loop
-	{
-		// TODO provide an error channel and surface errors to the graph UI
-		file, _ := io.ReadAll(fileToUpdate)
-		_, _ = ourData.FromCompact(file)
-	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -117,8 +88,17 @@ func writeToFile(ctx context.Context, input chan ping.PingResults, fileToUpdate 
 			}
 			ourData.AddPoint(p)
 			// TODO provide an error channel and surface errors to the graph UI
-			_, _ = fileToUpdate.Seek(0, 0)
-			_ = ourData.AsCompact(fileToUpdate)
+			_, err := fileToUpdate.Seek(0, 0)
+			check.NoErr(err, "seeking file")
+			err = ourData.AsCompact(fileToUpdate)
+			check.NoErr(err, "writing file")
 		}
 	}
+}
+
+func duplicateData(f *os.File) (*data.Data, error) {
+	d := &data.Data{}
+	file, fileErr := io.ReadAll(f)
+	_, readingErr := d.FromCompact(file)
+	return d, errors.Join(fileErr, readingErr)
 }

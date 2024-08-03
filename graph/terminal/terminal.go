@@ -12,6 +12,7 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/Lexer747/AcciPing/graph/terminal/ansi"
@@ -120,6 +121,8 @@ func (t *Terminal) StartRaw(ctx context.Context, stop context.CancelCauseFunc, l
 	}
 	t.cleanup = func() {
 		if err := recover(); err != nil {
+			// If the program panics we must return back the terminal to a normal state so that other go
+			// cleanup can take place. E.g. logging to stdout, etc.
 			_ = ctrlCAction('\x00')
 			panic(err)
 		}
@@ -139,11 +142,12 @@ func (t *Terminal) StartRaw(ctx context.Context, stop context.CancelCauseFunc, l
 func (t *Terminal) ClearScreen(updateSize bool) error {
 	if updateSize {
 		if err := t.UpdateCurrentTerminalSize(); err != nil {
-			return errors.Wrap(err, "while ctrl-f")
+			return errors.Wrap(err, "while ClearScreen")
 		}
 	}
+	t.Print(strings.Repeat("\n", t.size.Height))
 	err := t.Print(ansi.Clear + ansi.Home)
-	return errors.Wrap(err, "while ctrl-f")
+	return errors.Wrap(err, "while ClearScreen")
 }
 
 func (t *Terminal) Print(s string) error {
