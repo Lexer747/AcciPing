@@ -65,24 +65,6 @@ func (g *Graph) computeFrame(timeBetweenFrames time.Duration, drawSpinner bool) 
 	return finished
 }
 
-var spinnerArray = [...]string{
-	typography.UpperLeftQuadrantCircularArc,
-	typography.UpperRightQuadrantCircularArc,
-	typography.LowerRightQuadrantCircularArc,
-	typography.LowerLeftQuadrantCircularArc,
-}
-
-func spinner(s terminal.Size, i int, timeBetweenFrames time.Duration) string {
-	// TODO refactor into a generic only paint me every X fps.
-	// We want 200ms between spinner updates
-	a := i
-	x := timeBetweenFrames.Milliseconds()
-	if x != 0 && int(200/x) != 0 {
-		a = i / int(200/x)
-	}
-	return ansi.CursorPosition(1, s.Width-3) + ansi.Cyan(spinnerArray[a%len(spinnerArray)])
-}
-
 func translate(p ping.PingDataPoint, xAxis xAxis, yAxis yAxis, s terminal.Size) (y, x int) {
 	x = getX(p.Timestamp, xAxis, yAxis, s)
 	y = getY(p.Duration, yAxis, s)

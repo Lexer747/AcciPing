@@ -27,10 +27,12 @@ func main() {
 		f, err := os.OpenFile(file, os.O_RDONLY, 0)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to open %q, %s\n", file, err.Error())
+			continue
 		}
 		d, err := data.ReadData(f)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to parse %q, %s\n", file, err.Error())
+			continue
 		}
 		defer f.Close()
 		handle(printAll, toCSV, d)

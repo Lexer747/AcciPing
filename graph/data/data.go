@@ -107,6 +107,7 @@ type TimeSpan struct {
 	Duration time.Duration
 }
 
+// AddTimestamp adds the timestamp to the span, only works when initialized with a non-zero time
 func (ts *TimeSpan) AddTimestamp(t time.Time) {
 	if ts.Begin.After(t) {
 		ts.Begin = t
@@ -283,6 +284,21 @@ func (s *Stats) AddPoints(values []time.Duration) {
 	for _, v := range values {
 		s.AddPoint(v)
 	}
+}
+
+func (s Stats) IfAdded(input time.Duration) Stats {
+	toApplyTo := &Stats{
+		Min:               s.Min,
+		Max:               s.Max,
+		Mean:              s.Mean,
+		GoodCount:         s.GoodCount,
+		Variance:          s.Variance,
+		StandardDeviation: s.StandardDeviation,
+		PacketsDropped:    s.PacketsDropped,
+		sumOfSquares:      s.sumOfSquares,
+	}
+	toApplyTo.AddPoint(input)
+	return *toApplyTo
 }
 
 func (ts TimeSpan) String() string {

@@ -36,6 +36,9 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
+	// Now that we have a ping channel which is already running we want to duplicate it, providing one to the
+	// Graph and second to a file writer. This de-couples the processes, we don't want the GUI to affect
+	// storing data and vice versa.
 	graphChannel, fileChannel := siphon.TeeBufferedChannel(ctx, channel, channelSize)
 	go writeToFile(ctx, fileChannel, toUpdate)
 
@@ -51,13 +54,14 @@ func main() {
 	} else {
 		_ = g.Term.ClearScreen(true)
 		g.Term.Print(g.LastFrame())
-		g.Term.Print("\n# Summary\n" + g.Summarize())
+		g.Term.Print("\n# Summary\n" + g.Summarise())
 	}
 }
 
+const demoFilePath = "dev.pings"
+const demoURL = "www.google.com"
+
 func loadFile() (*data.Data, *os.File) {
-	const demoFilePath = "dev.pings"
-	demoURL := "www.google.com"
 	f, err := os.OpenFile(demoFilePath, os.O_RDONLY, 0)
 	var existingData *data.Data
 	switch {

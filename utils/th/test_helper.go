@@ -4,7 +4,7 @@
 //
 // SPDX-License-Identifier: GPL-2.0-only
 
-// th stands for "test helpers"
+// th stands for "test helper"
 package th
 
 import (

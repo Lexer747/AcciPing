@@ -15,7 +15,8 @@ import (
 	"github.com/Lexer747/AcciPing/graph"
 	"github.com/Lexer747/AcciPing/graph/data"
 	"github.com/Lexer747/AcciPing/graph/terminal"
-	"github.com/Lexer747/AcciPing/graph/terminal/th"
+	termTh "github.com/Lexer747/AcciPing/graph/terminal/th"
+	graphTh "github.com/Lexer747/AcciPing/graph/th"
 	"github.com/Lexer747/AcciPing/ping"
 	"github.com/stretchr/testify/require"
 )
@@ -53,15 +54,26 @@ func TestFiles(t *testing.T) {
 		Size:               terminal.Size{Height: 25, Width: 80},
 		ExpectedOutputFile: "data/testdata/medium-hour-gaps.frame",
 	}.Run)
+	t.Run("Hotel", FileTest{
+		FileName:           "data/testdata/medium-hotel.pings",
+		Size:               terminal.Size{Height: 25, Width: 80},
+		ExpectedOutputFile: "data/testdata/medium-hotel.frame",
+	}.Run)
+	t.Run("Large Hotel", FileTest{
+		FileName:           "data/testdata/large-hotel.pings",
+		Size:               terminal.Size{Height: 25, Width: 80},
+		ExpectedOutputFile: "data/testdata/large-hotel.frame",
+	}.Run)
+	t.Run("Gap", FileTest{
+		FileName:           "data/testdata/long-gap.pings",
+		Size:               terminal.Size{Height: 25, Width: 80},
+		ExpectedOutputFile: "data/testdata/long-gap.frame",
+	}.Run)
 }
 
 func (ft FileTest) Run(t *testing.T) {
 	t.Parallel()
-	f, err := os.OpenFile(ft.FileName, os.O_RDONLY, 0)
-	require.NoError(t, err)
-	defer f.Close()
-	d, err := data.ReadData(f)
-	require.NoError(t, err)
+	d := graphTh.GetFromFile(t, ft.FileName)
 
 	actualStrings := produceFrame(t, ft.Size, d)
 
@@ -94,7 +106,7 @@ func (ft FileTest) update(t *testing.T, actualStrings []string) {
 
 func produceFrame(t *testing.T, size terminal.Size, data *data.Data) []string {
 	t.Helper()
-	stdin, _, term, setTerm, err := th.NewTestTerminal()
+	stdin, _, term, setTerm, err := termTh.NewTestTerminal()
 	setTerm(size)
 	ctx, cancel := context.WithCancel(context.Background())
 	// cancel this, we don't want the graph collecting from the channel in the background

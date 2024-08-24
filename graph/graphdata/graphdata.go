@@ -7,8 +7,8 @@
 package graphdata
 
 import (
+	"fmt"
 	"io"
-	"math"
 	"sync"
 	"time"
 
@@ -25,13 +25,9 @@ type GraphData struct {
 
 func NewGraphData(d *data.Data) *GraphData {
 	g := &GraphData{
-		data: d,
-		spans: []*SpanInfo{{
-			TimeStats: &data.Stats{},
-			TimeSpan:  &data.TimeSpan{},
-			LastPoint: ping.PingDataPoint{},
-		}},
-		m: &sync.Mutex{},
+		data:  d,
+		spans: []*SpanInfo{NewSpanInfo()},
+		m:     &sync.Mutex{},
 	}
 	for i := range d.TotalCount {
 		g.addPointToSpans(d.Get(i))
@@ -42,11 +38,7 @@ func NewGraphData(d *data.Data) *GraphData {
 func (gd *GraphData) addPointToSpans(p ping.PingDataPoint) {
 	differentSpan := gd.spans[gd.spanIndex].AddPoint(p)
 	if differentSpan {
-		gd.spans = append(gd.spans, &SpanInfo{
-			TimeStats: &data.Stats{},
-			TimeSpan:  &data.TimeSpan{},
-			LastPoint: ping.PingDataPoint{},
-		})
+		gd.spans = append(gd.spans, NewSpanInfo())
 		gd.spanIndex++
 		gd.spans[gd.spanIndex].AddPoint(p)
 	}
@@ -95,7 +87,7 @@ func (gd *GraphData) LockFreeTotalCount() int64      { return gd.data.TotalCount
 func (gd *GraphData) LockFreeHeader() *data.Header   { return gd.data.Header }
 func (gd *GraphData) LockFreeURL() string            { return gd.data.URL }
 func (gd *GraphData) LockFreeRuns() *data.Runs       { return gd.data.Runs }
-func (gd *GraphData) LockFreeTimeSpans() []*SpanInfo { return gd.spans }
+func (gd *GraphData) LockFreeSpanInfos() []*SpanInfo { return gd.spans }
 
 type SpanInfo struct {
 	TimeStats *data.Stats
@@ -104,19 +96,59 @@ type SpanInfo struct {
 	Count     int
 }
 
-func (si *SpanInfo) AddPoint(p ping.PingDataPoint) bool {
-	add := func() {
-		si.TimeSpan.AddTimestamp(p.Timestamp)
-		si.Count++
-		si.LastPoint = p
+func NewSpanInfo() *SpanInfo {
+	return &SpanInfo{
+		TimeStats: &data.Stats{},
+		TimeSpan:  &data.TimeSpan{},
+		LastPoint: ping.PingDataPoint{},
 	}
-	if si.Count == 0 {
-		add()
+}
+
+const allowedStandardDeviations = 3.0
+const allowedDroppedStandardDeviations = 5.0
+const allowedMeanWhenTwoPoints = 5.0
+
+func (si *SpanInfo) addFirstPoint(p ping.PingDataPoint) {
+	si.TimeSpan = &data.TimeSpan{Begin: p.Timestamp, End: p.Timestamp}
+	si.Count++
+	si.LastPoint = p
+}
+
+func (si *SpanInfo) add(p ping.PingDataPoint) {
+	gap := p.Timestamp.Sub(si.LastPoint.Timestamp)
+	si.TimeStats.AddPoint(gap)
+	si.TimeSpan.AddTimestamp(p.Timestamp)
+	si.Count++
+	si.LastPoint = p
+}
+
+func (si *SpanInfo) AddPoint(p ping.PingDataPoint) bool {
+	const debug = false
+	switch si.Count {
+	case 0:
+		si.addFirstPoint(p)
 		return false
-	} else if si.Count == 1 {
+	case 1:
+		si.add(p)
+		return false
+	case 2:
+		// When we have exactly two packets this is the third packet we are adding in which case we won't have
+		// a variance yet only mean.
 		gap := p.Timestamp.Sub(si.LastPoint.Timestamp)
-		si.TimeStats.AddPoint(gap)
-		add()
+		if float64(gap) > si.TimeStats.Mean*allowedMeanWhenTwoPoints {
+			if debug {
+				fmt.Printf(
+					"%s -> %s, (%s) > Mean (%s)*%f\n",
+					si.LastPoint.Timestamp.String(),
+					p.Timestamp.String(),
+					gap.String(),
+					time.Duration(si.TimeStats.Mean).String(),
+					allowedMeanWhenTwoPoints,
+				)
+			}
+			return true
+		}
+		si.add(p)
 		return false
 	}
 	// Problem statement:
@@ -140,21 +172,45 @@ func (si *SpanInfo) AddPoint(p ping.PingDataPoint) bool {
 	// span. Where outlier is a flexible definition to just mean whatever is the best heuristic for pretty
 	// graphs.
 	gap := p.Timestamp.Sub(si.LastPoint.Timestamp)
-	allowedStandardDeviations := 3.0
+	std := allowedStandardDeviations
 	if p.Dropped() {
 		// At low ping rate this might be too high, given a reasonable 1 ping/minute, a 1s timeout is
 		// completely reasonable in which case this should just stay as 3 stds away. Scale this somehow?
-		allowedStandardDeviations = 6.0
+		std = allowedDroppedStandardDeviations
 	}
-	if time.Duration(math.Round(si.TimeStats.StandardDeviation*allowedStandardDeviations)) < gap {
+	if float64(gap) > si.TimeStats.Mean+(si.TimeStats.StandardDeviation*std) && si.TimeStats.StandardDeviation != 0.0 {
 		// This gap is officially too big, don't add this point.
 		// TODO account for very early small stats with low confidence
+		if debug {
+			fmt.Printf(
+				"%s -> %s, (%s) > %s+(%s*%f)\n",
+				si.LastPoint.Timestamp.String(),
+				p.Timestamp.String(),
+				gap.String(),
+				time.Duration(si.TimeStats.Mean).String(),
+				time.Duration(si.TimeStats.StandardDeviation).String(),
+				std,
+			)
+		}
 		return true
+	} else if float64(gap) > si.TimeStats.Mean*2.0 && si.TimeStats.StandardDeviation == 0.0 {
+		if debug {
+			fmt.Printf(
+				"%s -> %s, (%s) > Zero %s+(%s*%f)\n",
+				si.LastPoint.Timestamp.String(),
+				p.Timestamp.String(),
+				gap.String(),
+				time.Duration(si.TimeStats.Mean).String(),
+				time.Duration(si.TimeStats.StandardDeviation).String(),
+				std,
+			)
+		}
+		return true
+	} else {
+		// This gap is small enough add it to this span
+		si.add(p)
+		return false
 	}
-	// This gap is small enough add it to this span
-	si.TimeStats.AddPoint(gap)
-	add()
-	return false
 }
 
 type Iter struct {

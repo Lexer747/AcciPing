@@ -8,7 +8,6 @@ package graph
 
 import (
 	"context"
-	"os"
 	"sync"
 	"time"
 
@@ -16,7 +15,6 @@ import (
 	"github.com/Lexer747/AcciPing/graph/graphdata"
 	"github.com/Lexer747/AcciPing/graph/terminal"
 	"github.com/Lexer747/AcciPing/ping"
-	"github.com/Lexer747/AcciPing/utils/errors"
 )
 
 type Graph struct {
@@ -57,6 +55,12 @@ func NewGraphWithData(
 	return g, nil
 }
 
+// Run holds the thread an listens on it's ping channel continuously, drawing a new graph every time a new
+// packet comes in. It only returns a fatal error in which case it couldn't continue drawing (although it may
+// still panic). It will return [terminal.UserControlCErr] if the thread was cancelled byu the user.
+//
+// Since this runs in a concurrent sense any method is thread safe but therefore may also block if another
+// thread is already holding the lock.
 func (g *Graph) Run(ctx context.Context, stop context.CancelCauseFunc, fps int) error {
 	timeBetweenFrames := getTimeBetweenFrames(fps, g.pingsPerMinute)
 	frameRate := time.NewTicker(timeBetweenFrames)
@@ -81,10 +85,7 @@ func (g *Graph) Run(ctx context.Context, stop context.CancelCauseFunc, fps int) 
 	}
 }
 
-func (g *Graph) AddPoint(p ping.PingResults) {
-	g.data.AddPoint(p)
-}
-
+// LastFrame will return the last graphical frame printed to the terminal.
 func (g *Graph) LastFrame() string {
 	g.frameMutex.Lock()
 	defer g.frameMutex.Unlock()
@@ -96,28 +97,12 @@ func (g *Graph) LastFrame() string {
 		"",
 	)
 }
-func (g *Graph) Size() int64 {
-	return g.data.TotalCount()
-}
-func (g *Graph) ComputeFrame() string {
-	return g.computeFrame(0, false)
-}
 
-func (g *Graph) Summarize() string {
+// Summarise will summarise the graph's backed data according to the [*graphdata.GraphData.String] function.
+func (g *Graph) Summarise() string {
+	g.frameMutex.Lock()
+	defer g.frameMutex.Unlock()
 	return g.data.String()
-}
-
-func (g *Graph) WriteToNewFile(filename string) error {
-	f, err := os.OpenFile(filename, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o777) // 777 = rw-rw-rw
-	if err != nil && errors.Is(err, os.ErrExist) {
-		// TODO document other APIs and link errors
-		return errors.Wrapf(err, "WriteToNewFile Will not overwrite file %q, use other flags.", filename)
-	} else if err != nil {
-		// Permissions, etc
-		return errors.Wrap(err, "WriteToNewFile")
-	}
-	defer f.Close()
-	return g.data.AsCompact(f)
 }
 
 func (g *Graph) sink(ctx context.Context) {
