@@ -23,6 +23,10 @@ func main() {
 	flag.BoolVar(&toCSV, "csv", false, "writes `.pings` files as `.csv`")
 	flag.Parse()
 	toPrint := flag.Args()
+	if len(toPrint) == 0 {
+		fmt.Fprintf(os.Stderr, "No files found, exiting. Use -h/--help to print usage instructions.\n")
+		os.Exit(0)
+	}
 	for _, file := range toPrint {
 		f, err := os.OpenFile(file, os.O_RDONLY, 0)
 		if err != nil {
