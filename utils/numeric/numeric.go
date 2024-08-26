@@ -23,6 +23,44 @@ func RoundToNearestSigFig(input float64, sigFig int) float64 {
 	return rounded / magnitude
 }
 
+// TruncateToNearestSigFigInt is RoundToNearestSigFig but staying in purely integer land
+func TruncateToNearestSigFigInt(input int, sigFig int) int {
+	if input == 0 {
+		return 0
+	}
+	exp := ExponentInt(input)
+	if sigFig > exp {
+		return input
+	}
+	power := sigFig - exp
+	rounded := PowInt(input, 10, min(power, -1*power))
+	result := PowInt(rounded, 10, max(power, -1*power))
+	return result
+}
+
+func ExponentInt(input int) int {
+	count := 0
+	for i := Abs(input); i > 0; i /= 10 {
+		count++
+	}
+	return count
+}
+func PowInt(start, base, input int) int {
+	if input < 0 {
+		ret := start
+		for range Abs(input) {
+			ret = ret / base
+		}
+		return ret
+	} else {
+		ret := start
+		for range input {
+			ret = ret * base
+		}
+		return ret
+	}
+}
+
 func Exponent(input float64) float64 {
 	return math.Ceil(math.Log10(math.Abs(input)))
 }

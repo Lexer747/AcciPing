@@ -13,13 +13,13 @@ import (
 	"github.com/Lexer747/AcciPing/utils/numeric"
 )
 
-// HumanString rounds a duration to a given number of sig figs then prints it as a human readable duration.
+// HumanString truncates a duration to a given number of sig figs then prints it as a human readable duration.
 //
 // e.g.
 //
 //	HumanString(123456 * time.Nanosecond, 3) // prints "123µs"
 func HumanString(t time.Duration, digits int) string {
-	rounded := numeric.RoundToNearestSigFig(float64(t), digits)
+	rounded := numeric.TruncateToNearestSigFigInt(int(t), digits)
 	return time.Duration(rounded).String()
 }
 

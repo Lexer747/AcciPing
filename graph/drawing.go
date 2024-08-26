@@ -49,7 +49,7 @@ func (g *Graph) computeFrame(timeBetweenFrames time.Duration, drawSpinner bool) 
 		return spinnerValue
 	}
 
-	x := computeXAxis(s.Width, g.data.LockFreeHeader().TimeSpan)
+	x := computeXAxis(s.Width, g.data.LockFreeHeader().TimeSpan, g.data.LockFreeSpanInfos())
 	y := computeYAxis(s, g.data.LockFreeHeader().Stats, g.data.LockFreeURL())
 	innerFrame := computeInnerFrame(g.data.LockFreeIter(), g.data.LockFreeRuns(), x, y, s)
 	// Everything we need is now cached we can unlock a bit early while we tidy up for the next frame
@@ -76,17 +76,18 @@ func getY(dur time.Duration, yAxis yAxis, s terminal.Size) int {
 		float64(dur),
 		float64(yAxis.stats.Min),
 		float64(yAxis.stats.Max),
-		float64(s.Height-1),
+		float64(s.Height-2),
 		2,
 	))
 }
 
 func getX(t time.Time, xAxis xAxis, yAxis yAxis, s terminal.Size) int {
-	timestamp := xAxis.spanBase.End.Sub(t)
+	// TODO this needs fixing
+	timestamp := xAxis.overallSpan.End.Sub(t)
 	return int(numeric.NormalizeToRange(
 		float64(timestamp),
 		0,
-		float64(xAxis.spanBase.Duration),
+		float64(xAxis.overallSpan.Duration),
 		float64(s.Width-1),
 		float64(yAxis.labelSize),
 	))
@@ -127,8 +128,8 @@ func computeInnerFrame(
 	if iter.Total < 1 {
 		return ""
 	}
-	centreY := s.Height / 2
-	centreX := s.Width / 2
+	centreY := (s.Height - 2) / 2
+	centreX := (s.Width - 2) / 2
 	if iter.Total == 1 {
 		return ansi.CursorPosition(centreY, centreX) + plain + " " + iter.Get(0).Duration.String()
 	}
@@ -199,8 +200,8 @@ func makeDroppedPacketIndicators(droppedPackets uint64, s terminal.Size) (string
 	droppedBar := ""
 	droppedFiller := ""
 	if droppedPackets > 0 {
-		droppedBar = strings.Repeat(drop+ansi.CursorDown(1)+ansi.CursorBack(1), s.Height-2)
-		droppedFiller = strings.Repeat(dropFiller+ansi.CursorDown(1)+ansi.CursorBack(1), s.Height-2)
+		droppedBar = strings.Repeat(drop+ansi.CursorDown(1)+ansi.CursorBack(1), s.Height-3)
+		droppedFiller = strings.Repeat(dropFiller+ansi.CursorDown(1)+ansi.CursorBack(1), s.Height-3)
 	}
 	return droppedBar, droppedFiller
 }
@@ -265,14 +266,12 @@ func shouldGradient(runs *data.Runs) bool {
 
 func computeYAxis(size terminal.Size, stats *data.Stats, url string) yAxis {
 	var b strings.Builder
-	// Making of a buffer of [size] will be too small because ansi + unicode will take up more bytes than the
-	// character space they take up
-	b.Grow(size.Height * 2)
+	b.Grow(size.Height)
 
 	finalTitle := makeTitle(size, stats, url)
 	fmt.Fprint(&b, finalTitle)
 
-	gapSize := 3
+	gapSize := 2
 	if size.Height > 20 {
 		gapSize++
 	} else if size.Height < 12 {
@@ -280,17 +279,21 @@ func computeYAxis(size terminal.Size, stats *data.Stats, url string) yAxis {
 	}
 	durationSize := (gapSize * 3) / 2
 
-	for i := range size.Height - 2 {
+	// We skip the first and last two lines
+	for i := range size.Height - 3 {
 		h := i + 2
 		fmt.Fprint(&b, ansi.CursorPosition(h, 1))
 		if i%gapSize == 1 {
 			scaledDuration := numeric.NormalizeToRange(float64(i), float64(size.Height-2), 0, float64(stats.Min), float64(stats.Max))
-			toPrint := timeutils.HumanString(time.Duration(scaledDuration), durationSize)
+			x := time.Duration(scaledDuration)
+			toPrint := timeutils.HumanString(x, durationSize)
 			fmt.Fprint(&b, ansi.Yellow(toPrint))
 		} else {
 			fmt.Fprint(&b, ansi.White(typography.Vertical))
 		}
 	}
+	// Last line is always a bar
+	fmt.Fprint(&b, ansi.CursorPosition(size.Height-1, 1)+ansi.White(typography.Vertical))
 	return yAxis{
 		size:      size.Height,
 		stats:     stats,
@@ -301,7 +304,7 @@ func computeYAxis(size terminal.Size, stats *data.Stats, url string) yAxis {
 
 func makeTitle(size terminal.Size, stats *data.Stats, url string) string {
 	// TODO string builder, or larger buffer impl
-	const yAxisTitle = "Latency "
+	const yAxisTitle = "Ping "
 	sizeStr := size.String()
 	titleBegin := ansi.Cyan(url)
 	titleEnd := ansi.Green(sizeStr)
@@ -323,51 +326,23 @@ type yAxis struct {
 	labelSize int
 }
 
-func computeXAxis(size int, span *data.TimeSpan) xAxis {
-	const format = "15:04:05.99"
-	const formatLen = 11
-	const spacePerItem = formatLen + 6
+func computeXAxis(size int, overall *data.TimeSpan, spans []*graphdata.SpanInfo) xAxis {
 	padding := ansi.White(typography.Horizontal + typography.Horizontal)
-	var b strings.Builder
-	// Making of a buffer of [size] will be too small because ansi + unicode will take up more bytes than the
-	// character space they take up
-	b.Grow(size * 2)
-	fmt.Fprint(&b, ansi.Magenta(typography.Bullet)+" ")
-	remaining := size - 2
-	toPrint := max(remaining/spacePerItem, 1)
-	durationGap := span.Duration / time.Duration(toPrint)
-	// TODO don't repeat durations
-	for i := range toPrint {
-		t := span.Begin.Add(durationGap * time.Duration(i))
-		timeStamp := t.Format(format)
-		if len(timeStamp) < formatLen {
-			if len(timeStamp) == 8 {
-				timeStamp += ".00"
-			} else if len(timeStamp) == 10 {
-				timeStamp += "0"
-			} else if len(timeStamp) == 9 {
-				timeStamp += "00"
-			}
-		}
-		fmt.Fprint(&b, padding+" "+ansi.Yellow(timeStamp)+" "+padding)
-		remaining -= spacePerItem
-	}
-	if remaining > 1 {
-		// TODO also put some chars at the beginning of the axis
-		final := strings.Repeat(typography.Horizontal, remaining-1)
-		fmt.Fprint(&b, ansi.White(final))
-	}
+	origin := ansi.Magenta(typography.Bullet) + " "
+
 	return xAxis{
-		size:     size,
-		spanBase: span,
-		axis:     b.String(),
+		size:        size,
+		spans:       spans,
+		overallSpan: overall,
+		axis:        origin + padding,
 	}
 }
 
 type xAxis struct {
-	size     int
-	spanBase *data.TimeSpan
-	axis     string
+	size        int
+	spans       []*graphdata.SpanInfo
+	overallSpan *data.TimeSpan
+	axis        string
 }
 
 // paint knows how to composite the parts of a frame and the spinner
