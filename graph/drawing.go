@@ -327,14 +327,19 @@ type yAxis struct {
 }
 
 func computeXAxis(size int, overall *data.TimeSpan, spans []*graphdata.SpanInfo) xAxis {
-	padding := ansi.White(typography.Horizontal + typography.Horizontal)
+	padding := ansi.White(typography.Horizontal)
 	origin := ansi.Magenta(typography.Bullet) + " "
+	remaining := size - 2
+	var b strings.Builder
+	fmt.Fprintf(&b, origin+padding)
+	for span := range spans {
 
+	}
 	return xAxis{
 		size:        size,
 		spans:       spans,
 		overallSpan: overall,
-		axis:        origin + padding,
+		axis:        b.String(),
 	}
 }
 
