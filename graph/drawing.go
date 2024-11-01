@@ -329,11 +329,30 @@ type yAxis struct {
 func computeXAxis(size int, overall *data.TimeSpan, spans []*graphdata.SpanInfo) xAxis {
 	padding := ansi.White(typography.Horizontal)
 	origin := ansi.Magenta(typography.Bullet) + " "
-	remaining := size - 2
+	space := size - 3
+	remaining := space
 	var b strings.Builder
-	fmt.Fprintf(&b, origin+padding)
-	for span := range spans {
-
+	fmt.Fprint(&b, origin+padding)
+	total := graphdata.Spans(spans).Count()
+	for _, span := range spans {
+		ratio := float64(span.Count) / float64(total)
+		start, times := span.TimeSpan.FormatDraw(int(float64(space)*ratio), 2)
+		if remaining <= 0 {
+			continue
+		} else if len(start) > remaining {
+			b.WriteString(ansi.Yellow(start[:(remaining - 1)]))
+			remaining -= len(start)
+		} else {
+			remaining -= len(start) + 4 + 2
+			fmt.Fprintf(&b, "[ %s ]", ansi.Yellow(start))
+			b.WriteString(padding + padding)
+			remaining = xAxis_DrawTimes(b, times, remaining, padding)
+			if remaining <= 1 {
+				continue
+			}
+			b.WriteString(ansi.White(typography.HollowBullet))
+			remaining -= 1
+		}
 	}
 	return xAxis{
 		size:        size,
@@ -341,6 +360,22 @@ func computeXAxis(size int, overall *data.TimeSpan, spans []*graphdata.SpanInfo)
 		overallSpan: overall,
 		axis:        b.String(),
 	}
+}
+
+func xAxis_DrawTimes(b strings.Builder, times []string, remaining int, padding string) int {
+	for _, point := range times {
+		if remaining <= len(point) {
+			continue
+		}
+		b.WriteString(ansi.Yellow(point))
+		remaining -= len(point)
+		if remaining <= 2 {
+			continue
+		}
+		b.WriteString(padding + padding)
+		remaining -= 2
+	}
+	return remaining
 }
 
 type xAxis struct {

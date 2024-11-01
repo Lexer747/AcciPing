@@ -48,12 +48,16 @@ func (p *Ping) LastIP() string {
 
 func NewPing() *Ping {
 	return &Ping{
+		//nolint:gosec
+		// G115 overflow is expected and required
 		id: uint16(os.Getpid() + 1234),
 	}
 }
 
 func NewPingWithTrust(trust DNSCacheTrust) *Ping {
 	return &Ping{
+		//nolint:gosec
+		// G115 overflow is expected and required
 		id:            uint16(os.Getpid() + 1234),
 		dnsCacheTrust: trust.asMaxDropped(),
 	}

@@ -301,6 +301,38 @@ func (s Stats) IfAdded(input time.Duration) Stats {
 	return *toApplyTo
 }
 
+func (ts TimeSpan) FormatDraw(width, padding int) (string, []string) {
+	format := "05.0000"
+	const firstFormat = "02 Jan 2006 15:04:05.00"
+	const halfDay = 12 * time.Hour
+	const halfMonth = 30 * halfDay
+	const halfYear = 12 * halfMonth
+	switch {
+	case ts.Duration > halfYear:
+		format = firstFormat
+	case ts.Duration > halfMonth:
+		format = "Jan 06 15:04"
+	case ts.Duration > halfDay:
+		format = "06 15:04:05"
+	case ts.Duration > 15*time.Minute:
+		format = "15:04:05.00"
+	case ts.Duration > time.Minute:
+		format = "04:05.0000"
+	}
+	startString := ts.Begin.Format(firstFormat)
+	if width < len(firstFormat) {
+		return startString, []string{}
+	}
+	remaining := width - (len(startString) + padding + padding)
+	count := max(remaining/(len(format)+padding), 1)
+	step := ts.Duration / time.Duration(count)
+	steps := make([]string, count)
+	for c := range count {
+		steps[c] = ts.Begin.Add(step * time.Duration(c+1)).Format(format)
+	}
+	return startString, steps
+}
+
 func (ts TimeSpan) String() string {
 	format := "15:04:05.9999"
 	const firstFormat = "02 Jan 2006 15:04:05.99"
@@ -308,16 +340,14 @@ func (ts TimeSpan) String() string {
 	const halfMonth = 30 * halfDay
 	const halfYear = 12 * halfMonth
 	switch {
-	case ts.Duration > time.Minute:
-		format = "15:04:05.99"
-	case ts.Duration > time.Hour:
-		format = "15:04:05.99"
+	case ts.Duration > halfYear:
+		format = firstFormat
 	case ts.Duration > halfDay:
 		format = "06 15:04:05"
 	case ts.Duration > halfMonth:
 		format = "Jan 06 15:04"
-	case ts.Duration > halfYear:
-		format = firstFormat
+	case ts.Duration > time.Minute, ts.Duration > time.Hour:
+		format = "15:04:05.99"
 	}
 	return fmt.Sprintf("%s -> %s (%s)", ts.Begin.Format(firstFormat), ts.End.Format(format), ts.Duration.String())
 }

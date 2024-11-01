@@ -104,9 +104,9 @@ func NewSpanInfo() *SpanInfo {
 	}
 }
 
-const allowedStandardDeviations = 3.0
-const allowedDroppedStandardDeviations = 5.0
-const allowedMeanWhenTwoPoints = 5.0
+const allowedStandardDeviations = 4.0
+const allowedDroppedStandardDeviations = 9.0
+const allowedMeanWhenTwoPoints = 7.0
 
 func (si *SpanInfo) addFirstPoint(p ping.PingDataPoint) {
 	si.TimeSpan = &data.TimeSpan{Begin: p.Timestamp, End: p.Timestamp}
@@ -123,7 +123,7 @@ func (si *SpanInfo) add(p ping.PingDataPoint) {
 }
 
 func (si *SpanInfo) AddPoint(p ping.PingDataPoint) bool {
-	const debug = false
+	const debug = true
 	switch si.Count {
 	case 0:
 		si.addFirstPoint(p)
@@ -138,7 +138,7 @@ func (si *SpanInfo) AddPoint(p ping.PingDataPoint) bool {
 		if float64(gap) > si.TimeStats.Mean*allowedMeanWhenTwoPoints {
 			if debug {
 				fmt.Printf(
-					"%s -> %s, (%s) > Mean (%s)*%f\n",
+					"Case 1 | %s -> %s, (%s) > Mean (%s)*%f\n",
 					si.LastPoint.Timestamp.String(),
 					p.Timestamp.String(),
 					gap.String(),
@@ -178,12 +178,15 @@ func (si *SpanInfo) AddPoint(p ping.PingDataPoint) bool {
 		// completely reasonable in which case this should just stay as 3 stds away. Scale this somehow?
 		std = allowedDroppedStandardDeviations
 	}
-	if float64(gap) > si.TimeStats.Mean+(si.TimeStats.StandardDeviation*std) && si.TimeStats.StandardDeviation != 0.0 {
+	// 1599084877
+	// 1540607237.699181
+	x := si.TimeStats.Mean + (si.TimeStats.StandardDeviation * std)
+	if float64(gap) > x && si.TimeStats.StandardDeviation != 0.0 {
 		// This gap is officially too big, don't add this point.
 		// TODO account for very early small stats with low confidence
 		if debug {
 			fmt.Printf(
-				"%s -> %s, (%s) > %s+(%s*%f)\n",
+				"Case 2 | %s -> %s, (%s) > %s+(%s*%f)\n",
 				si.LastPoint.Timestamp.String(),
 				p.Timestamp.String(),
 				gap.String(),
@@ -196,7 +199,7 @@ func (si *SpanInfo) AddPoint(p ping.PingDataPoint) bool {
 	} else if float64(gap) > si.TimeStats.Mean*2.0 && si.TimeStats.StandardDeviation == 0.0 {
 		if debug {
 			fmt.Printf(
-				"%s -> %s, (%s) > Zero %s+(%s*%f)\n",
+				"Case 3 | %s -> %s, (%s) > Zero %s+(%s*%f)\n",
 				si.LastPoint.Timestamp.String(),
 				p.Timestamp.String(),
 				gap.String(),
@@ -211,6 +214,16 @@ func (si *SpanInfo) AddPoint(p ping.PingDataPoint) bool {
 		si.add(p)
 		return false
 	}
+}
+
+type Spans []*SpanInfo
+
+func (s Spans) Count() int {
+	count := 0
+	for _, span := range s {
+		count += span.Count
+	}
+	return count
 }
 
 type Iter struct {
