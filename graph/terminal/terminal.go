@@ -1,6 +1,6 @@
 // Use of this source code is governed by a GPL-2 license that can be found in the LICENSE file.
 //
-// Copyright 2024 Lexer747
+// Copyright 2024-2025 Lexer747
 //
 // SPDX-License-Identifier: GPL-2.0-only
 
@@ -16,6 +16,7 @@ import (
 	"sync"
 
 	"github.com/Lexer747/AcciPing/graph/terminal/ansi"
+	"github.com/Lexer747/AcciPing/utils"
 	"github.com/Lexer747/AcciPing/utils/bytes"
 	"github.com/Lexer747/AcciPing/utils/errors"
 
@@ -31,6 +32,19 @@ func (s Size) String() string {
 	return "W: " + strconv.Itoa(s.Width) + " H: " + strconv.Itoa(s.Height)
 }
 
+func Parse(s string) (Size, bool) {
+	split := strings.Split(s, "x")
+	if len(split) != 2 {
+		return Size{}, false
+	}
+	height, hErr := strconv.ParseInt(split[0], 10, 32)
+	width, wErr := strconv.ParseInt(split[1], 10, 32)
+	if hErr != nil || wErr != nil {
+		return Size{}, false
+	}
+	return Size{Height: int(height), Width: int(width)}, true
+}
+
 type Terminal struct {
 	size      Size
 	listeners []Listener
@@ -38,7 +52,9 @@ type Terminal struct {
 	stdin                *stdin
 	stdout               *stdout
 	terminalSizeCallBack func() Size
-	isTestTerminal       bool
+
+	isTestTerminal bool
+	isDynamicSize  bool
 
 	// should be called if a panic occurs otherwise stacktraces are unreadable
 	cleanup func()
@@ -55,12 +71,34 @@ func NewTerminal() (*Terminal, error) {
 		return nil, err
 	}
 	return &Terminal{
-		size:        size,
-		listeners:   []Listener{},
-		stdin:       &stdin{realFile: os.Stdin},
-		stdout:      &stdout{realFile: os.Stdout},
-		listenMutex: &sync.Mutex{},
+		size:          size,
+		listeners:     []Listener{},
+		stdin:         &stdin{realFile: os.Stdin},
+		stdout:        &stdout{realFile: os.Stdout},
+		listenMutex:   &sync.Mutex{},
+		isDynamicSize: true,
 	}, nil
+}
+func NewFixedSizeTerminal(s Size) (*Terminal, error) {
+	return &Terminal{
+		size:          s,
+		listeners:     []Listener{},
+		stdin:         &stdin{realFile: os.Stdin},
+		stdout:        &stdout{realFile: os.Stdout},
+		listenMutex:   &sync.Mutex{},
+		isDynamicSize: false,
+	}, nil
+}
+
+// NewParsedFixedSizeTerminal will construct a new fixed size terminal which cannot change size,
+// parsing the size from the input parameter string, which is in format <H>x<W>, where H and W are
+// integers.
+func NewParsedFixedSizeTerminal(size string) (*Terminal, error) {
+	s, ok := Parse(size)
+	if !ok {
+		return nil, errors.Errorf("Cannot parse %q as terminal a size, should be in the form \"<H>x<W>\", where H and W are integers.", size)
+	}
+	return NewFixedSizeTerminal(s)
 }
 func (t *Terminal) Size() Size {
 	return t.size
@@ -151,13 +189,12 @@ func (t *Terminal) ClearScreen(updateSize bool) error {
 }
 
 func (t *Terminal) Print(s string) error {
-	err := t.Write([]byte(s))
+	err := utils.Err(t.Write([]byte(s)))
 	return err
 }
 
-func (t *Terminal) Write(b []byte) error {
-	_, err := t.stdout.Write(b)
-	return err
+func (t *Terminal) Write(b []byte) (int, error) {
+	return t.stdout.Write(b)
 }
 
 type listenResult struct {
@@ -244,6 +281,9 @@ func getCurrentTerminalSize(file *os.File) (Size, error) {
 
 // updateCurrentTerminalSizes the terminals stored size.
 func (t *Terminal) UpdateCurrentTerminalSize() error {
+	if !t.isDynamicSize {
+		return nil
+	}
 	if t.isTestTerminal {
 		t.size = t.terminalSizeCallBack()
 		return nil
@@ -289,6 +329,7 @@ func NewTestTerminal(stdinReader io.Reader, stdoutWriter io.Writer, terminalSize
 		stdout:               &stdout{stubFileWriter: stdoutWriter},
 		terminalSizeCallBack: terminalSizeCallBack,
 		isTestTerminal:       true,
+		isDynamicSize:        true,
 		listenMutex:          &sync.Mutex{},
 	}, nil
 }

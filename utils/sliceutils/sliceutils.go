@@ -1,6 +1,6 @@
 // Use of this source code is governed by a GPL-2 license that can be found in the LICENSE file.
 //
-// Copyright 2024 Lexer747
+// Copyright 2024-2025 Lexer747
 //
 // SPDX-License-Identifier: GPL-2.0-only
 
@@ -39,6 +39,19 @@ func AllOf[S ~[]T, T any](slice S, f func(T) bool) bool {
 	return true
 }
 
+// this is not an interface return but generic return
+//
+//nolint:ireturn
+func Fold[IN, OUT any, S ~[]IN](slice S, base OUT, f func(IN, OUT) OUT) OUT {
+	ret := base
+	for _, in := range slice {
+		ret = f(in, ret)
+	}
+	return ret
+}
+
+// this is not an interface return but generic return
+//
 //nolint:ireturn
 func Shuffle[S ~[]T, T any](slice S) S {
 	ret := slices.Clone(slice)

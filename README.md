@@ -4,7 +4,14 @@ AcciPing an in terminal ping CLI utility.
 
 ![thumbnail](images/thumbnail.png)
 
-It is still a WIP ⚠️
+This is still a WIP ⚠️ And may panic for no reason.
+
+### Span Show case
+
+Single span:
+![spans](images/spans.png)
+Multi-day recording (40,000 packets being shown):
+![long-running-session](images/long-running-session.png)
 
 ## Setup
 
@@ -16,7 +23,11 @@ follow the OS specific guidance in order to allow this program to run:
 
 ## Windows
 
+TODO
+
 ## Mac
+
+TODO
 
 ## Linux
 On linux to ensure that you do not get prompted for root permissions to execute the binary, simply run this

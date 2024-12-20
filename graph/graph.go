@@ -8,13 +8,17 @@ package graph
 
 import (
 	"context"
+	"io"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/Lexer747/AcciPing/drawbuffer"
 	"github.com/Lexer747/AcciPing/graph/data"
 	"github.com/Lexer747/AcciPing/graph/graphdata"
 	"github.com/Lexer747/AcciPing/graph/terminal"
 	"github.com/Lexer747/AcciPing/ping"
+	"github.com/Lexer747/AcciPing/utils/check"
 )
 
 type Graph struct {
@@ -29,6 +33,8 @@ type Graph struct {
 
 	frameMutex *sync.Mutex
 	lastFrame  frame
+
+	drawingBuffer *drawbuffer.Collection
 }
 
 func NewGraph(ctx context.Context, input chan ping.PingResults, t *terminal.Terminal, pingsPerMinute float64, URL string) (*Graph, error) {
@@ -50,6 +56,7 @@ func NewGraphWithData(
 		data:           graphdata.NewGraphData(data),
 		frameMutex:     &sync.Mutex{},
 		lastFrame:      frame{},
+		drawingBuffer:  drawbuffer.NewCollection(int(indexCount.Load())),
 	}
 	if ctx != nil {
 		// A nil context is valid: It means that no new data is expected and the input channel isn't active
@@ -79,7 +86,10 @@ func (g *Graph) Run(ctx context.Context, stop context.CancelCauseFunc, fps int) 
 		toWrite := g.computeFrame(timeBetweenFrames, true)
 		// Currently no strong opinions on dropped frames this is fine
 		<-frameRate.C
-		g.Term.Print(toWrite)
+		err = toWrite(g.Term)
+		if err != nil {
+			return err
+		}
 		select {
 		case <-ctx.Done():
 			return context.Cause(ctx)
@@ -97,23 +107,17 @@ func (g *Graph) OneFrame() error {
 		return err
 	}
 	toWrite := g.computeFrame(0, false)
-	g.Term.Print(toWrite)
-	return nil
+	return toWrite(g.Term)
 }
 
 // LastFrame will return the last graphical frame printed to the terminal.
 func (g *Graph) LastFrame() string {
 	g.frameMutex.Lock()
 	defer g.frameMutex.Unlock()
-	return paint(
-		g.lastFrame.Size(),
-		g.lastFrame.xAxis.bars,
-		g.lastFrame.xAxis.axis,
-		g.lastFrame.yAxis.axis,
-		g.lastFrame.key,
-		g.lastFrame.insideFrame,
-		"",
-	)
+	var b strings.Builder
+	err := g.lastFrame.framePainter(&b)
+	check.NoErr(err, "While painting frame to string buffer")
+	return b.String()
 }
 
 // Summarise will summarise the graph's backed data according to the [*graphdata.GraphData.String] function.
@@ -143,8 +147,7 @@ type frame struct {
 	PacketCount  int64
 	yAxis        yAxis
 	xAxis        xAxis
-	key          string
-	insideFrame  string
+	framePainter func(io.Writer) error
 	spinnerIndex int
 }
 

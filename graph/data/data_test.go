@@ -1,6 +1,6 @@
 // Use of this source code is governed by a GPL-2 license that can be found in the LICENSE file.
 //
-// Copyright 2024 Lexer747
+// Copyright 2024-2025 Lexer747
 //
 // SPDX-License-Identifier: GPL-2.0-only
 
@@ -130,6 +130,55 @@ func TestStats(t *testing.T) {
 			assert.Equal(t, test.ExpectedMin, asSingles.Min, "asSingles Min")
 			assert.Equal(t, uint64(len(test.Values)), asSlice.GoodCount, "asSlice Count")
 			assert.Equal(t, uint64(len(test.Values)), asSingles.GoodCount, "asSingles Count")
+		})
+	}
+	type MergeCase struct {
+		Inputs                    []int
+		ExpectedMean              float64
+		ExpectedVariance          float64
+		ExpectedStandardDeviation float64
+		ExpectedMin, ExpectedMax  time.Duration
+	}
+	mergeCases := []MergeCase{
+		{
+			Inputs:                    []int{0, 0, 0},
+			ExpectedMean:              5.2 * 1000 * 1000,
+			ExpectedVariance:          1.885714e+12, // Thanks to floating noise these diverge from correct values.
+			ExpectedStandardDeviation: 1.3732e+06,
+			ExpectedMin:               3 * time.Millisecond,
+			ExpectedMax:               7 * time.Millisecond,
+		},
+		{
+			Inputs:                    []int{2, 3},
+			ExpectedMean:              4.428571,
+			ExpectedVariance:          17.64835,
+			ExpectedStandardDeviation: 4.201,
+			ExpectedMin:               1,
+			ExpectedMax:               11,
+		},
+	}
+	for i, test := range mergeCases {
+		t.Run(fmt.Sprintf("%d:%+v", i, test.Inputs), func(t *testing.T) {
+			t.Parallel()
+			allInOne := data.Stats{}
+			var merged *data.Stats
+			for _, tc := range test.Inputs {
+				x := testCases[tc]
+				allInOne.AddPoints(x.Values)
+				toMerge := data.Stats{}
+				toMerge.AddPoints(x.Values)
+				merged = merged.Merge(&toMerge)
+			}
+			th.AssertFloatEqual(t, test.ExpectedMean, allInOne.Mean, 7, "allInOne Mean")
+			th.AssertFloatEqual(t, test.ExpectedMean, merged.Mean, 7, "merged Mean")
+			th.AssertFloatEqual(t, test.ExpectedVariance, allInOne.Variance, 7, "allInOne Variance")
+			th.AssertFloatEqual(t, test.ExpectedVariance, merged.Variance, 7, "merged Variance")
+			th.AssertFloatEqual(t, test.ExpectedStandardDeviation, allInOne.StandardDeviation, 5, "allInOne StandardDeviation")
+			th.AssertFloatEqual(t, test.ExpectedStandardDeviation, merged.StandardDeviation, 5, "merged StandardDeviation")
+			assert.Equal(t, test.ExpectedMax, allInOne.Max, "allInOne Max")
+			assert.Equal(t, test.ExpectedMax, merged.Max, "merged Max")
+			assert.Equal(t, test.ExpectedMin, allInOne.Min, "allInOne Min")
+			assert.Equal(t, test.ExpectedMin, merged.Min, "merged Min")
 		})
 	}
 }

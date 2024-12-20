@@ -6,7 +6,12 @@
 
 package graph
 
-import "github.com/Lexer747/AcciPing/ping"
+import (
+	"strings"
+
+	"github.com/Lexer747/AcciPing/ping"
+	"github.com/Lexer747/AcciPing/utils/check"
+)
 
 // This file contains various helper methods for unit tests but which are not safe public API methods.
 
@@ -15,7 +20,11 @@ func (g *Graph) AddPoint(p ping.PingResults) {
 }
 
 func (g *Graph) ComputeFrame() string {
-	return g.computeFrame(0, false)
+	var b strings.Builder
+	painter := g.computeFrame(0, false)
+	err := painter(&b)
+	check.NoErr(err, "While painting frame to string buffer")
+	return b.String()
 }
 
 func (g *Graph) Size() int64 {
