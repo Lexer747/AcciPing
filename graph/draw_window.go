@@ -1,12 +1,13 @@
 // Use of this source code is governed by a GPL-2 license that can be found in the LICENSE file.
 //
-// Copyright 2024 Lexer747
+// Copyright 2024-2025 Lexer747
 //
 // SPDX-License-Identifier: GPL-2.0-only
 
 package graph
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/Lexer747/AcciPing/graph/data"
@@ -22,78 +23,126 @@ import (
 // This also directly enables not painting over labels and the other span based printing choosing which points
 // to highlight.
 type drawWindow struct {
-	cache map[coords]drawnData
-	max   int
+	cache  map[coords]drawnData
+	labels []label
+	max    int
 }
 
+// coords are the unique key to identify some data to be drawn
 type coords struct {
 	x, y int
 }
 
+// drawnData is the actual data we wish to draw, [isLabel] is an indirect pointer of sorts which tells the
+// overall library to look at the [drawWindow.labels] instead this draw data.
 type drawnData struct {
 	pingCount int
 	isLabel   bool
 }
 
-func newDrawWindow(total int64) *drawWindow {
+type label struct {
+	coords
+	symbol      string
+	text        string
+	leftJustify bool
+	colour      colour
+}
+
+type colour int
+
+const (
+	red colour = iota
+	green
+)
+
+func newDrawWindow(total int64, spans int) *drawWindow {
 	return &drawWindow{
-		cache: make(map[coords]drawnData, int(total)),
+		cache:  make(map[coords]drawnData, int(total)),
+		labels: make([]label, 0, spans*2),
 	}
 }
 
-func (dw *drawWindow) drawPoint(
+func (dw *drawWindow) draw(toWriteTo *bytes.Buffer) {
+	// These can be indeterministically (map order) drawn since we guarantee uniqueness of the coords,
+	// therefore meaning no map [drawnData] will ever contain the same coords which have different ping counts
+	for c, point := range dw.cache {
+		if point.isLabel {
+			// labels are drawn separately, but are in the cache for [addPoint]
+			continue
+		}
+		toWriteTo.WriteString(ansi.CursorPosition(c.y, c.x) + dw.getOverlap(c.x, c.y))
+	}
+	// If these are drawn indeterministically then we will get shimmer as labels may be fighting for Z-Preference
+	for _, l := range dw.labels {
+		var getColour func(string) string
+		if l.colour == red {
+			getColour = ansi.Red
+		} else {
+			getColour = ansi.Green
+		}
+		if l.leftJustify {
+			toWriteTo.WriteString(ansi.CursorPosition(l.y, l.x-len(l.text)) + getColour(l.text+" "+l.symbol))
+		} else /* rightJustify */ {
+			toWriteTo.WriteString(ansi.CursorPosition(l.y, l.x) + getColour(l.symbol+" "+l.text))
+		}
+	}
+}
+
+// e.g. 22.12434ms, 8.359131ms, 7.406686ms
+const averageLabelSize = 30
+
+func (dw *drawWindow) addPoint(
 	p ping.PingDataPoint,
 	spanStats, stats *data.Stats,
+	spanWidth int,
 	x, y, centreX int,
-) string {
-	leftJustify := x > centreX
+) {
 	isMin := p.Duration == stats.Min
 	isMax := p.Duration == stats.Max
 	isMinWithinSpan := p.Duration == spanStats.Min
 	isMaxWithinSpan := p.Duration == spanStats.Max
-	needsLabel := isMin || isMax || isMinWithinSpan || isMaxWithinSpan
+	wideEnough := spanWidth > averageLabelSize
+	needsLabel := (wideEnough && (isMinWithinSpan || isMaxWithinSpan)) || isMin || isMax
 	dw.add(x, y, needsLabel)
-	symbol := dw.getOverlap(x, y)
-	var colour func(string) string
+	if !needsLabel {
+		return
+	}
+	leftJustify := x > centreX
+	var symbol string
+	var colour colour
 	if isMinWithinSpan {
-		colour = ansi.Green
+		colour = green
 		symbol = typography.HollowUpTriangle
 	}
 	if isMaxWithinSpan {
-		colour = ansi.Red
+		colour = red
 		symbol = typography.HollowDownTriangle
 	}
 	if isMin {
-		colour = ansi.Green
+		colour = green
 		symbol = typography.FilledUpTriangle
 	}
 	if isMax {
-		colour = ansi.Red
+		colour = red
 		symbol = typography.FilledDownTriangle
 	}
-	label := ""
 	if needsLabel {
-		label = p.Duration.String()
-		dw.addLabel(x, y, leftJustify, label)
+		label := p.Duration.String()
+		dw.addLabel(x, y, leftJustify, symbol, label, colour)
 	}
-	if leftJustify && needsLabel {
-		return ansi.CursorPosition(y, x-len(label)) + colour(label+" "+symbol)
-	} else if needsLabel /* rightJustify */ {
-		return ansi.CursorPosition(y, x) + colour(symbol+" "+label)
-	}
-	if dw.shouldSkip(x, y) {
-		return ""
-	}
-	return ansi.CursorPosition(y, x) + symbol
 }
 
 func (dw *drawWindow) add(x, y int, label bool) {
 	c := coords{x, y}
-	if dd, found := dw.cache[c]; found {
-		count := dd.pingCount + 1
+	if drawData, found := dw.cache[c]; found {
+		if drawData.isLabel {
+			// Don't double count label, labels only need a count of 1 to be drawn
+			return
+		}
+		count := drawData.pingCount + 1
 		dw.cache[c] = drawnData{
 			pingCount: count,
-			isLabel:   dd.isLabel || label,
+			isLabel:   drawData.isLabel || label,
 		}
 		dw.max = max(count, dw.max)
 	} else {
@@ -104,33 +153,49 @@ func (dw *drawWindow) add(x, y int, label bool) {
 	}
 }
 
-func (dw *drawWindow) addLabel(x, y int, leftJustify bool, label string) {
-	for i := range len(label) + 2 {
-		if leftJustify {
-			dw.add(x-i+2, y, true)
-		} else {
-			dw.add(x+i, y, true)
+// addLabel will spread over the drawWindow all the coords which the label will occupy this ensures we draw on
+// top of data points and the text is legible.
+func (dw *drawWindow) addLabel(x, y int, leftJustify bool, symbol, labelStr string, colour colour) {
+	c := coords{x, y}
+	if leftJustify {
+		for i := range len(labelStr) {
+			extendedX := (x + 2) - i
+			if extendedX == x {
+				// Don't double count the point itself
+				continue
+			}
+			dw.add(extendedX, y, true)
+		}
+	} else {
+		for i := range len(labelStr) {
+			extendedX := (x + 2) + i
+			if extendedX == x {
+				// Don't double count the point itself
+				continue
+			}
+			dw.add(extendedX, y, true)
 		}
 	}
-}
-
-func (dw *drawWindow) shouldSkip(x, y int) bool {
-	c := coords{x, y}
-	if dd, found := dw.cache[c]; found {
-		return dd.isLabel
-	}
-	return false
+	dw.labels = append(dw.labels, label{
+		coords:      c,
+		symbol:      symbol,
+		text:        labelStr,
+		leftJustify: leftJustify,
+		colour:      colour,
+	})
 }
 
 const (
-	fewThreshold  = 1
-	manyThreshold = 5
+	fewThreshold   = 1
+	manyThreshold  = 5
+	loadsThreshold = 25
 )
 
 var (
 	single = ansi.White(typography.Multiply)
 	few    = ansi.White(typography.SmallSquare)
-	many   = ansi.White(typography.Square)
+	many   = ansi.White(typography.Diamond)
+	loads  = ansi.White(typography.Square)
 
 	bar = ansi.Gray("|")
 )
@@ -143,19 +208,32 @@ func (dw *drawWindow) getOverlap(x, y int) string {
 		return single
 	case dd.pingCount <= manyThreshold:
 		return few
-	default:
+	case dd.pingCount <= loadsThreshold:
 		return many
+	default:
+		return loads
 	}
 }
 
-func (dw *drawWindow) getKey() string {
+// getKey will write to the draw buffer the key needed for this draw window, where is minimizes the amount of
+// text needed to show the key for all the points drawn.
+func (dw *drawWindow) getKey(toWriteTo *bytes.Buffer) {
+	if dw.max > loadsThreshold {
+		fmt.Fprintf(toWriteTo, ansi.Gray("Key")+ansi.White(": ")+
+			single+" = %d "+bar+" "+few+" = %d-%d "+bar+" "+many+" = %d-%d "+bar+" "+loads+" = %d+    ",
+			fewThreshold, fewThreshold+1, manyThreshold, manyThreshold+1, loadsThreshold, loadsThreshold+1)
+		return
+	}
 	if dw.max > manyThreshold {
-		return fmt.Sprintf(ansi.Gray("Key")+ansi.White(": ")+single+" = %d "+bar+" "+few+" = %d-%d "+bar+" "+many+" = %d+    ",
-			fewThreshold, fewThreshold+1, manyThreshold, manyThreshold+1)
+		fmt.Fprintf(toWriteTo, ansi.Gray("Key")+ansi.White(": ")+
+			single+" = %d "+bar+" "+few+" = %d-%d "+bar+" "+many+" = %d-%d    ",
+			fewThreshold, fewThreshold+1, manyThreshold, manyThreshold+1, loadsThreshold)
+		return
 	}
 	if dw.max > fewThreshold {
-		return fmt.Sprintf(ansi.Gray("Key")+ansi.White(": ")+single+" = %d "+bar+" "+few+" = %d-%d    ",
+		fmt.Fprintf(toWriteTo, ansi.Gray("Key")+ansi.White(": ")+
+			single+" = %d "+bar+" "+few+" = %d-%d    ",
 			fewThreshold, fewThreshold+1, manyThreshold)
+		return
 	}
-	return ""
 }

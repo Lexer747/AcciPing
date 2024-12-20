@@ -1,6 +1,6 @@
 // Use of this source code is governed by a GPL-2 license that can be found in the LICENSE file.
 //
-// Copyright 2024 Lexer747
+// Copyright 2024-2025 Lexer747
 //
 // SPDX-License-Identifier: GPL-2.0-only
 
@@ -105,6 +105,20 @@ type TimeSpan struct {
 	Begin    time.Time
 	End      time.Time
 	Duration time.Duration
+}
+
+// Merge takes two [TimeSpan] pointers and returns the new span containing both inputs, this may be
+// the same as one of the inputs if a span completely overlaps another.
+func (ts *TimeSpan) Merge(other *TimeSpan) *TimeSpan {
+	ret := &TimeSpan{Begin: ts.Begin, End: ts.End}
+	if other.Begin.Before(ret.Begin) {
+		ret.Begin = other.Begin
+	}
+	if other.End.After(ret.End) {
+		ret.End = other.End
+	}
+	ret.Duration = ret.End.Sub(ret.Begin)
+	return ret
 }
 
 func (ts *TimeSpan) Contains(t time.Time) bool {
@@ -246,6 +260,49 @@ type Stats struct {
 	sumOfSquares      float64
 }
 
+// Merge combines two [Stats] pointers into a new [Stats] pointer containing all the data from both
+// inputs. This means the total count will be the sum of the two input counts. If either is nil then
+// a new [Stats] is not created and the non-nil pointer is returned. If both are nil then this
+// panics.
+func (s *Stats) Merge(other *Stats) *Stats {
+	if s == nil {
+		return other
+	}
+	if other == nil {
+		return s
+	}
+	ret := &Stats{}
+	ret.Min = min(s.Min, other.Min)
+	ret.Max = max(s.Max, other.Max)
+	ret.GoodCount = s.GoodCount + other.GoodCount
+	ret.Mean = (s.Mean*float64(s.GoodCount) + other.Mean*float64(other.GoodCount)) / float64(ret.GoodCount)
+	ret.PacketsDropped = s.PacketsDropped + other.PacketsDropped
+	// https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Weighted_incremental_algorithm
+	// Illuminating question:
+	// https://math.stackexchange.com/questions/2867951/formula-of-combined-variance-of-two-data-sets-yields-wrong-output
+	ret.sumOfSquares = s.sumOfSquares + other.sumOfSquares + // First add the sums of squares to keep the original variance
+		float64(s.GoodCount)*math.Pow(s.Mean-ret.Mean, 2) + // The sum of squares of set [s] is compared to the [ret] mean
+		float64(other.GoodCount)*math.Pow(other.Mean-ret.Mean, 2) // The sum of squares of set [other] is compared to the [ret] mean
+	ret.computeVariance()
+	return ret
+}
+
+// Math proof for why this works:
+// https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Welford's_online_algorithm
+//
+// This will compute the variance and update this [Stats] pointer with the variance and standard
+// deviation based on the current sumOfSquares.
+func (s *Stats) computeVariance() {
+	variance := 0.0
+	std := 0.0
+	if s.GoodCount >= 2 {
+		variance = s.sumOfSquares / float64(s.GoodCount-1)
+		std = math.Sqrt(variance)
+	}
+	s.Variance = variance
+	s.StandardDeviation = std
+}
+
 func (s Stats) PacketLoss() float64 {
 	return float64(s.PacketsDropped) / float64(s.GoodCount+s.PacketsDropped)
 }
@@ -266,22 +323,14 @@ func (s *Stats) AddPoint(input time.Duration) {
 		s.Min = input
 	}
 	value := float64(input)
-	newCount := s.GoodCount + 1
+	s.GoodCount++
 	delta := value - s.Mean
-	newMean := s.Mean + (delta / float64(newCount))
+	newMean := s.Mean + (delta / float64(s.GoodCount))
 	newDelta := value - newMean
 	s.sumOfSquares += delta * newDelta
 
-	variance := 0.0
-	std := 0.0
-	if newCount >= 2 {
-		variance = s.sumOfSquares / float64(newCount-1)
-		std = math.Sqrt(float64(variance))
-	}
-	s.GoodCount = newCount
 	s.Mean = newMean
-	s.Variance = float64(variance)
-	s.StandardDeviation = std
+	s.computeVariance()
 }
 
 func (s *Stats) AddPoints(values []time.Duration) {
@@ -293,7 +342,7 @@ func (s *Stats) AddPoints(values []time.Duration) {
 }
 
 func (ts TimeSpan) FormatDraw(width, padding int) (string, []string) {
-	format := "05.0000"
+	var format string
 	const firstFormat = "02 Jan 2006 15:04:05.00"
 	const halfDay = 12 * time.Hour
 	const halfMonth = 30 * halfDay
@@ -306,9 +355,13 @@ func (ts TimeSpan) FormatDraw(width, padding int) (string, []string) {
 	case ts.Duration > halfDay:
 		format = "06 15:04:05"
 	case ts.Duration > 15*time.Minute:
-		format = "15:04:05.00"
+		format = "15:04:05"
 	case ts.Duration > time.Minute:
+		format = "15:04:05.00"
+	case ts.Duration > 30*time.Second:
 		format = "04:05.0000"
+	default:
+		format = "05.0000"
 	}
 	startString := ts.Begin.Format(firstFormat)
 	if width < len(firstFormat) {
@@ -375,14 +428,21 @@ func (s Stats) String() string {
 	return s.mediumString()
 }
 
+func (s Stats) packetLoss(b *strings.Builder, prefix string) {
+	if s.PacketsDropped > 0 {
+		percent := numeric.RoundToNearestSigFig(s.PacketLoss(), 4) * 100
+		if percent > 0.1 {
+			fmt.Fprintf(b, " | %s%.1f%%", prefix, percent)
+		}
+	}
+}
+
 func (s Stats) superShortString() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "\u03BC %s | \u03C3 %s",
 		stringFloatTime(numeric.RoundToNearestSigFig(s.Mean, 4)),
 		stringFloatTime(numeric.RoundToNearestSigFig(s.StandardDeviation, 4)))
-	if s.PacketsDropped > 0 {
-		fmt.Fprintf(&b, " | %.1f%%", numeric.RoundToNearestSigFig(s.PacketLoss(), 4)*100)
-	}
+	s.packetLoss(&b, "")
 	fmt.Fprintf(&b, " | Count %d", s.PacketsDropped+s.GoodCount)
 	return b.String()
 }
@@ -391,9 +451,7 @@ func (s Stats) shortString() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "\u03BC %s | \u03C3 %s",
 		stringFloatTime(s.Mean), stringFloatTime(s.StandardDeviation))
-	if s.PacketsDropped > 0 {
-		fmt.Fprintf(&b, " | Loss %.1f%%", numeric.RoundToNearestSigFig(s.PacketLoss(), 4)*100)
-	}
+	s.packetLoss(&b, "Loss ")
 	fmt.Fprintf(&b, " | Packet Count %d", s.PacketsDropped+s.GoodCount)
 	return b.String()
 }
@@ -402,9 +460,7 @@ func (s Stats) mediumString() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Average \u03BC %s | SD \u03C3 %s",
 		stringFloatTime(s.Mean), stringFloatTime(s.StandardDeviation))
-	if s.PacketsDropped > 0 {
-		fmt.Fprintf(&b, " | PacketLoss %.1f%%", numeric.RoundToNearestSigFig(s.PacketLoss(), 4)*100)
-	}
+	s.packetLoss(&b, "PacketLoss ")
 	fmt.Fprintf(&b, " | Packet Count %d", s.PacketsDropped+s.GoodCount)
 	return b.String()
 }
@@ -413,7 +469,8 @@ func (s Stats) longString() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Average \u03BC %s | SD \u03C3 %s",
 		stringFloatTime(s.Mean), stringFloatTime(s.StandardDeviation))
-	fmt.Fprintf(&b, " | PacketLoss %.1f%% | Dropped %d", numeric.RoundToNearestSigFig(s.PacketLoss(), 4)*100, s.PacketsDropped)
+	s.packetLoss(&b, "PacketLoss ")
+	fmt.Fprintf(&b, " | Dropped %d", s.PacketsDropped)
 	fmt.Fprintf(&b, " | Good Packets %d | Packet Count %d", s.GoodCount, s.PacketsDropped+s.GoodCount)
 	return b.String()
 }

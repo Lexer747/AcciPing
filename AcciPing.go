@@ -8,8 +8,11 @@ package main
 
 import (
 	"context"
+	"flag"
 	"io"
 	"os"
+	"runtime"
+	"runtime/pprof"
 
 	"github.com/Lexer747/AcciPing/files"
 	"github.com/Lexer747/AcciPing/graph"
@@ -21,7 +24,14 @@ import (
 	"github.com/Lexer747/AcciPing/utils/siphon"
 )
 
+var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
+var memprofile = flag.String("memprofile", "", "write memory profile to `file`")
+
 func main() {
+	flag.Parse()
+	closeProfile := startCPUProfiling()
+	defer closeProfile()
+	defer concludeMemProfile()
 	p := ping.NewPing()
 	ctx, cancelFunc := context.WithCancelCause(context.Background())
 	defer cancelFunc(nil)
@@ -101,4 +111,35 @@ func duplicateData(f *os.File) (*data.Data, error) {
 	file, fileErr := io.ReadAll(f)
 	_, readingErr := d.FromCompact(file)
 	return d, errors.Join(fileErr, readingErr)
+}
+
+func concludeMemProfile() {
+	if *memprofile != "" {
+		f, err := os.Create(*memprofile)
+		if err != nil {
+			panic("could not create memory profile: " + err.Error())
+		}
+		defer f.Close()
+		runtime.GC() // get up-to-date statistics
+		if err := pprof.WriteHeapProfile(f); err != nil {
+			panic("could not write memory profile: " + err.Error())
+		}
+	}
+}
+
+func startCPUProfiling() func() {
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			panic("could not create CPU profile: " + err.Error())
+		}
+		if err := pprof.StartCPUProfile(f); err != nil {
+			panic("could not start CPU profile: " + err.Error())
+		}
+		return func() {
+			f.Close()
+			pprof.StopCPUProfile()
+		}
+	}
+	return func() {}
 }
