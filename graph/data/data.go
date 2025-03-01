@@ -35,6 +35,10 @@ type DataIndexes struct {
 }
 
 func NewData(URL string) *Data {
+	return newVersionedData(URL, currentDataVersion)
+}
+
+func newVersionedData(URL string, v version) *Data {
 	d := &Data{
 		URL:         URL,
 		Header:      &Header{Stats: &Stats{}, TimeSpan: &TimeSpan{Begin: time.UnixMilli(0), End: time.UnixMilli(0), Duration: 0}},
@@ -43,7 +47,7 @@ func NewData(URL string) *Data {
 		Blocks:      []*Block{},
 		TotalCount:  0,
 		Runs:        &Runs{GoodPackets: &Run{}, DroppedPackets: &Run{}},
-		PingsMeta:   currentDataVersion,
+		PingsMeta:   v,
 	}
 	return d
 }
@@ -100,11 +104,25 @@ func (d *Data) String() string {
 	return fmt.Sprintf("%s: PingsMeta#%d [%s] | %s | %s", d.URL, d.PingsMeta, d.Network.String(), d.Header.String(), d.Runs.String())
 }
 
+func (d *Data) In(tz *time.Location) *Data {
+	ret := newVersionedData(d.URL, d.PingsMeta)
+	for i := range d.TotalCount {
+		p := d.GetFull(i)
+		p.Data.Timestamp = p.Data.Timestamp.In(tz)
+		ret.AddPoint(p)
+	}
+	return ret
+}
+
 // TimeSpan is the time properties of a given thing
 type TimeSpan struct {
 	Begin    time.Time
 	End      time.Time
 	Duration time.Duration
+}
+
+func (ts *TimeSpan) Equal(other *TimeSpan) bool {
+	return ts.Duration == other.Duration && ts.Begin.Equal(other.Begin) && ts.End.Equal(other.End)
 }
 
 // Merge takes two [TimeSpan] pointers and returns the new span containing both inputs, this may be

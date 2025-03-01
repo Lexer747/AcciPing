@@ -18,7 +18,9 @@ import (
 	"github.com/Lexer747/AcciPing/graph/terminal"
 	"github.com/Lexer747/AcciPing/graph/terminal/th"
 	"github.com/Lexer747/AcciPing/ping"
-	"github.com/stretchr/testify/require"
+	"github.com/Lexer747/AcciPing/utils/env"
+	"gotest.tools/v3/assert"
+	is "gotest.tools/v3/assert/cmp"
 )
 
 func TestSmallDrawing(t *testing.T) {
@@ -195,7 +197,7 @@ func updateDrawingTest(t *testing.T, test DrawingTest) {
 	t.Helper()
 	actual := drawGraph(t, test.Size, test.Values)
 	err := os.WriteFile(test.ExpectedFile, []byte(strings.Join(actual, "\n")), 0o777)
-	require.NoError(t, err)
+	assert.NilError(t, err)
 	t.Fatal("Only call update drawing once")
 }
 
@@ -204,15 +206,20 @@ func drawingTest(t *testing.T, test DrawingTest) {
 	t.Helper()
 	actualStrings := drawGraph(t, test.Size, test.Values)
 	expectedBytes, err := os.ReadFile(test.ExpectedFile)
-	require.NoError(t, err)
+	assert.NilError(t, err)
 	actualJoined := strings.Join(actualStrings, "\n")
-	actualOutput := test.ExpectedFile + ".actual"
-	if string(expectedBytes) != actualJoined {
-		err := os.WriteFile(actualOutput, []byte(actualJoined), 0o777)
-		require.NoError(t, err)
-		t.Fatalf("Diff in outputs see %s", actualOutput)
+	expected := string(expectedBytes)
+	if env.LOCAL_FRAME_DIFFS() {
+		actualOutput := test.ExpectedFile + ".actual"
+		if expected != actualJoined {
+			err := os.WriteFile(actualOutput, []byte(actualJoined), 0o777)
+			assert.NilError(t, err)
+			t.Fatalf("Diff in outputs see %s", actualOutput)
+		} else {
+			os.Remove(actualOutput)
+		}
 	} else {
-		os.Remove(actualOutput)
+		assert.Check(t, is.Equal(expected, actualJoined), test.ExpectedFile)
 	}
 }
 
@@ -222,7 +229,7 @@ func drawGraph(t *testing.T, size terminal.Size, input []ping.PingDataPoint) []s
 		panic("drawGraph test doesn't work on inputs size 1")
 	}
 	g, closer, err := initTestGraph(t, size)
-	require.NoError(t, err)
+	assert.NilError(t, err)
 	defer closer()
 
 	actual := eval(t, g, input)
@@ -237,11 +244,11 @@ func initTestGraph(t *testing.T, size terminal.Size) (*graph.Graph, func(), erro
 	ctx, cancel := context.WithCancel(context.Background())
 	// cancel this, we don't want the graph collecting from the channel in the background
 	cancel()
-	require.NoError(t, err)
+	assert.NilError(t, err)
 	pingChannel := make(chan ping.PingResults)
 	defer close(pingChannel)
 	g, err := graph.NewGraph(ctx, pingChannel, term, 0, "")
-	require.NoError(t, err)
+	assert.NilError(t, err)
 	return g, func() { stdin.WriteCtrlC(t) }, err
 }
 
@@ -250,8 +257,8 @@ func eval(t *testing.T, g *graph.Graph, input []ping.PingDataPoint) string {
 	for _, p := range input {
 		g.AddPoint(ping.PingResults{Data: p, IP: []byte{}})
 	}
-	require.Equal(t, int64(len(input)), g.Size())
+	assert.Equal(t, int64(len(input)), g.Size())
 	actual := g.ComputeFrame()
-	require.Equal(t, int64(len(input)), g.Size())
+	assert.Equal(t, int64(len(input)), g.Size())
 	return actual
 }

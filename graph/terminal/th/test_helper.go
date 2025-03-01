@@ -1,6 +1,6 @@
 // Use of this source code is governed by a GPL-2 license that can be found in the LICENSE file.
 //
-// Copyright 2024 Lexer747
+// Copyright 2024-2025 Lexer747
 //
 // SPDX-License-Identifier: GPL-2.0-only
 
@@ -15,7 +15,7 @@ import (
 	"testing"
 
 	"github.com/Lexer747/AcciPing/graph/terminal"
-	"github.com/stretchr/testify/require"
+	"gotest.tools/v3/assert"
 )
 
 func NewTestTerminal() (
@@ -60,7 +60,7 @@ func (f *TestFile) ReadString(t *testing.T) string {
 	t.Helper()
 	buffer := make([]byte, 255)
 	n, err := f.Read(buffer)
-	require.NoError(t, err)
+	assert.NilError(t, err)
 	return string(buffer[:n])
 }
 
@@ -100,5 +100,5 @@ func (f *TestFile) Write(p []byte) (n int, err error) {
 func (f *TestFile) WriteCtrlC(t *testing.T) {
 	t.Helper()
 	_, err := f.Write([]byte("\x03"))
-	require.NoError(t, err)
+	assert.NilError(t, err)
 }

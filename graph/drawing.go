@@ -65,7 +65,13 @@ func (g *Graph) computeFrame(timeBetweenFrames time.Duration, drawSpinner bool) 
 	g.drawingBuffer.Reset()
 
 	header := g.data.LockFreeHeader()
-	x := computeXAxis(g.drawingBuffer.Get(xAxisIndex), g.drawingBuffer.Get(barIndex), s, header.TimeSpan, g.data.LockFreeSpanInfos())
+	x := computeXAxis(
+		g.drawingBuffer.Get(xAxisIndex),
+		g.drawingBuffer.Get(barIndex),
+		s,
+		header.TimeSpan,
+		g.data.LockFreeSpanInfos(),
+	)
 	y := computeYAxis(g.drawingBuffer.Get(yAxisIndex), s, header.Stats, g.data.LockFreeURL())
 	computeFrame(
 		g.drawingBuffer.Get(gradientIndex),
@@ -371,7 +377,12 @@ type XAxisSpanInfo struct {
 	width     int
 }
 
-func computeXAxis(toWriteTo, toWriteSpanBars *bytes.Buffer, s terminal.Size, overall *data.TimeSpan, spans []*graphdata.SpanInfo) xAxis {
+func computeXAxis(
+	toWriteTo, toWriteSpanBars *bytes.Buffer,
+	s terminal.Size,
+	overall *data.TimeSpan,
+	spans []*graphdata.SpanInfo,
+) xAxis {
 	padding := ansi.White(typography.Horizontal)
 	origin := ansi.Magenta(typography.Bullet) + " "
 	space := s.Width - 6

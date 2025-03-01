@@ -1,6 +1,6 @@
 // Use of this source code is governed by a GPL-2 license that can be found in the LICENSE file.
 //
-// Copyright 2024 Lexer747
+// Copyright 2024-2025 Lexer747
 //
 // SPDX-License-Identifier: GPL-2.0-only
 
@@ -15,7 +15,9 @@ import (
 
 	"github.com/Lexer747/AcciPing/graph/data"
 	"github.com/Lexer747/AcciPing/ping"
-	"github.com/stretchr/testify/require"
+	"github.com/Lexer747/AcciPing/utils/th"
+	"gotest.tools/v3/assert"
+	is "gotest.tools/v3/assert/cmp"
 )
 
 func TestCompactTimeSpan(t *testing.T) {
@@ -165,26 +167,30 @@ func testCompacter(t *testing.T, start data.Compact, empty data.Compact) {
 	t.Helper()
 	var b bytes.Buffer
 	err := start.AsCompact(&b)
-	require.NoError(t, err)
+	assert.NilError(t, err)
 	_, err = empty.FromCompact(b.Bytes())
-	require.NoError(t, err)
-	require.Equal(t, start, empty, "expected == starting, actual == after AsCompact->FromCompact")
+	assert.NilError(t, err)
+	assert.Assert(t, is.DeepEqual(start, empty, th.AllowAllUnexported), "AsCompact->FromCompact")
 }
 
 type FileTest struct {
 	FileName        string
 	ExpectedSummary string
+	tz              *time.Location
 }
 
 func (ft FileTest) Run(t *testing.T) {
 	t.Parallel()
 	f, err := os.OpenFile(ft.FileName, os.O_RDONLY, 0)
-	require.NoError(t, err)
+	assert.NilError(t, err)
 	defer f.Close()
 	d, err := data.ReadData(f)
-	require.NoError(t, err)
-	require.Equal(t, ft.ExpectedSummary, d.String())
+	d = d.In(ft.tz)
+	assert.NilError(t, err)
+	assert.Equal(t, ft.ExpectedSummary, d.String())
 }
+
+var summer = time.FixedZone("+1", 3_600)
 
 //nolint:lll
 func TestFiles(t *testing.T) {
@@ -192,32 +198,37 @@ func TestFiles(t *testing.T) {
 	t.Run("Small",
 		FileTest{
 			FileName:        "testdata/input/small-2-02-08-2024.pings",
-			ExpectedSummary: "www.google.com: PingsMeta#1 [172.217.16.228] | 02 Aug 2024 20:01:58.66 -> 20:01:59.665 (1.000510378s) | Average μ 8.052048ms | SD σ 122.04µs | Packet Count 2 | Longest Streak 2",
+			ExpectedSummary: "www.google.com: PingsMeta#1 [172.217.16.228] | 02 Aug 2024 20:01:58.66 -> 20:01:59.665 (1s) | Average μ 8.052048ms | SD σ 122.04µs | Packet Count 2 | Longest Streak 2",
+			tz:              summer,
 		}.Run,
 	)
 	t.Run("Medium",
 		FileTest{
 			FileName:        "testdata/input/medium-395-02-08-2024.pings",
-			ExpectedSummary: "www.google.com: PingsMeta#1 [142.250.200.36] | 02 Aug 2024 20:40:41.17 -> 20:47:15.17 (6m34.000424411s) | Average μ 8.404893ms | SD σ 970.911µs | Packet Count 395 | Longest Streak 395",
+			ExpectedSummary: "www.google.com: PingsMeta#1 [142.250.200.36] | 02 Aug 2024 20:40:41.17 -> 20:47:15.17 (6m34s) | Average μ 8.404893ms | SD σ 970.911µs | Packet Count 395 | Longest Streak 395",
+			tz:              summer,
 		}.Run,
 	)
 	t.Run("Medium with drops",
 		FileTest{
 			FileName:        "testdata/input/medium-309-with-induced-drops-02-08-2024.pings",
-			ExpectedSummary: "www.google.com: PingsMeta#1 [142.250.179.228,142.250.200.4] | 02 Aug 2024 21:04:27.56 -> 21:09:51.56 (5m24.000499989s) | Average μ 8.564583ms | SD σ 3.25564ms | PacketLoss 2.6% | Packet Count 309 | Longest Streak 92 | Longest Drop Streak 2",
+			ExpectedSummary: "www.google.com: PingsMeta#1 [142.250.179.228,142.250.200.4] | 02 Aug 2024 21:04:27.56 -> 21:09:51.56 (5m24s) | Average μ 8.564583ms | SD σ 3.25564ms | PacketLoss 2.6% | Packet Count 309 | Longest Streak 92 | Longest Drop Streak 2",
+			tz:              summer,
 		}.Run,
 	)
 	t.Run("Medium with minute Gaps",
 		FileTest{
 			FileName: "testdata/input/medium-minute-gaps.pings",
 			// 60 packets but over 21mins
-			ExpectedSummary: "www.google.com: PingsMeta#1 [172.217.16.228,216.58.201.100,216.58.204.68] | 03 Aug 2024 00:41:06.65 -> 01:02:28.1 (21m21.449886808s) | Average μ 8.167942ms | SD σ 180.4µs | Packet Count 67 | Longest Streak 67",
+			ExpectedSummary: "www.google.com: PingsMeta#1 [172.217.16.228,216.58.201.100,216.58.204.68] | 03 Aug 2024 00:41:06.65 -> 01:02:28.1 (21m21.449s) | Average μ 8.167942ms | SD σ 180.4µs | Packet Count 67 | Longest Streak 67",
+			tz:              summer,
 		}.Run,
 	)
 	t.Run("Medium with hour Gaps",
 		FileTest{
 			FileName:        "testdata/input/medium-hour-gaps.pings",
-			ExpectedSummary: "www.google.com: PingsMeta#1 [142.250.179.228,172.217.16.228,216.58.201.100,216.58.204.68] | 03 Aug 2024 00:41:06.65 -> 10:55:06.59 (10h13m59.940463026s) | Average μ 8.207511ms | SD σ 1.398049ms | Packet Count 234 | Longest Streak 234",
+			ExpectedSummary: "www.google.com: PingsMeta#1 [142.250.179.228,172.217.16.228,216.58.201.100,216.58.204.68] | 03 Aug 2024 00:41:06.65 -> 10:55:06.59 (10h13m59.94s) | Average μ 8.207511ms | SD σ 1.398049ms | Packet Count 234 | Longest Streak 234",
+			tz:              summer,
 		}.Run,
 	)
 }

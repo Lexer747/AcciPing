@@ -1,6 +1,6 @@
 // Use of this source code is governed by a GPL-2 license that can be found in the LICENSE file.
 //
-// Copyright 2024 Lexer747
+// Copyright 2024-2025 Lexer747
 //
 // SPDX-License-Identifier: GPL-2.0-only
 
@@ -175,6 +175,9 @@ func (p PingDataPoint) Dropped() bool {
 }
 func (p PingDataPoint) Good() bool {
 	return p.DropReason == NotDropped
+}
+func (p PingDataPoint) Equal(other PingDataPoint) bool {
+	return p.Duration == other.Duration && p.Timestamp.Equal(other.Timestamp) && p.DropReason == other.DropReason
 }
 
 func (p *Ping) CreateChannel(ctx context.Context, url string, pingsPerMinute float64, channelSize int) (chan PingResults, error) {
@@ -376,18 +379,23 @@ type pingTimeout struct {
 
 func (pt pingTimeout) Error() string { return "PingTimeout {" + pt.String() + "}" }
 
-func (p *Ping) pingRead(ctx context.Context, buffer []byte) (n int, err error) {
-	c := make(chan struct{})
+func (p *Ping) pingRead(ctx context.Context, buffer []byte) (int, error) {
+	type read struct {
+		n   int
+		err error
+	}
+	c := make(chan read)
 	go func() {
-		n, _, err = p.connect.ReadFrom(buffer)
-		c <- struct{}{}
+		n, _, err := p.connect.ReadFrom(buffer)
+		c <- read{n: n, err: err}
 	}()
 	select {
 	case <-ctx.Done():
-		err = context.Cause(ctx)
-	case <-c:
+		err := context.Cause(ctx)
+		return 0, err
+	case success := <-c:
+		return success.n, success.err
 	}
-	return n, err
 }
 
 func (p *Ping) makeOutgoingPacket(seq uint16) ([]byte, error) {

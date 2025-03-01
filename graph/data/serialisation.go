@@ -1,6 +1,6 @@
 // Use of this source code is governed by a GPL-2 license that can be found in the LICENSE file.
 //
-// Copyright 2024 Lexer747
+// Copyright 2024-2025 Lexer747
 //
 // SPDX-License-Identifier: GPL-2.0-only
 
@@ -64,6 +64,11 @@ var _ Compact = (&Runs{})
 var _ Compact = (&Run{})
 var _ Compact = (&TimeSpan{})
 
+// PhasedWrite is generally used by a compacting implementor to indicate that the data must be written in two
+// phases, each phase is of this type. This is useful for types which have dynamic sizes e.g. [Network] which
+// will write all the sizes of it's slices in it's first phase, then it's second phase is to write the
+// variable length data. This allows the reader to be more simple and efficient as it can read all the sizes
+// before consuming all the bytes.
 type PhasedWrite = func(ret []byte) int
 
 func (d *Data) AsCompact(w io.Writer) error {

@@ -19,8 +19,8 @@ import (
 	"github.com/Lexer747/AcciPing/ping"
 	"github.com/Lexer747/AcciPing/utils/sliceutils"
 	"github.com/Lexer747/AcciPing/utils/th"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"gotest.tools/v3/assert"
+	is "gotest.tools/v3/assert/cmp"
 )
 
 func TestStats(t *testing.T) {
@@ -124,12 +124,12 @@ func TestStats(t *testing.T) {
 			th.AssertFloatEqual(t, test.ExpectedVariance, asSingles.Variance, 7, "asSingles Variance")
 			th.AssertFloatEqual(t, test.ExpectedStandardDeviation, asSlice.StandardDeviation, 5, "asSlice StandardDeviation")
 			th.AssertFloatEqual(t, test.ExpectedStandardDeviation, asSingles.StandardDeviation, 5, "asSingles StandardDeviation")
-			assert.Equal(t, test.ExpectedMax, asSlice.Max, "asSlice Max")
-			assert.Equal(t, test.ExpectedMax, asSingles.Max, "asSingles Max")
-			assert.Equal(t, test.ExpectedMin, asSlice.Min, "asSlice Min")
-			assert.Equal(t, test.ExpectedMin, asSingles.Min, "asSingles Min")
-			assert.Equal(t, uint64(len(test.Values)), asSlice.GoodCount, "asSlice Count")
-			assert.Equal(t, uint64(len(test.Values)), asSingles.GoodCount, "asSingles Count")
+			assert.Check(t, is.Equal(test.ExpectedMax, asSlice.Max), "asSlice Max")
+			assert.Check(t, is.Equal(test.ExpectedMax, asSingles.Max), "asSingles Max")
+			assert.Check(t, is.Equal(test.ExpectedMin, asSlice.Min), "asSlice Min")
+			assert.Check(t, is.Equal(test.ExpectedMin, asSingles.Min), "asSingles Min")
+			assert.Check(t, is.Equal(uint64(len(test.Values)), asSlice.GoodCount), "asSlice Count")
+			assert.Check(t, is.Equal(uint64(len(test.Values)), asSingles.GoodCount), "asSingles Count")
 		})
 	}
 	type MergeCase struct {
@@ -175,10 +175,10 @@ func TestStats(t *testing.T) {
 			th.AssertFloatEqual(t, test.ExpectedVariance, merged.Variance, 7, "merged Variance")
 			th.AssertFloatEqual(t, test.ExpectedStandardDeviation, allInOne.StandardDeviation, 5, "allInOne StandardDeviation")
 			th.AssertFloatEqual(t, test.ExpectedStandardDeviation, merged.StandardDeviation, 5, "merged StandardDeviation")
-			assert.Equal(t, test.ExpectedMax, allInOne.Max, "allInOne Max")
-			assert.Equal(t, test.ExpectedMax, merged.Max, "merged Max")
-			assert.Equal(t, test.ExpectedMin, allInOne.Min, "allInOne Min")
-			assert.Equal(t, test.ExpectedMin, merged.Min, "merged Min")
+			assert.Check(t, is.Equal(test.ExpectedMax, allInOne.Max), "allInOne Max")
+			assert.Check(t, is.Equal(test.ExpectedMax, merged.Max), "merged Max")
+			assert.Check(t, is.Equal(test.ExpectedMin, allInOne.Min), "allInOne Min")
+			assert.Check(t, is.Equal(test.ExpectedMin, merged.Min), "merged Min")
 		})
 	}
 }
@@ -189,15 +189,15 @@ func assertStatsEqual(t *testing.T, expected data.Stats, actual data.Stats, sigF
 	th.AssertFloatEqual(t, expected.Variance, actual.Variance, sigFigs, msgAndArgs...)
 	th.AssertFloatEqual(t, expected.StandardDeviation, actual.StandardDeviation, sigFigs, msgAndArgs...)
 	if expected.GoodCount != 0 {
-		assert.Equal(t, expected.GoodCount, actual.GoodCount, msgAndArgs...)
+		assert.Check(t, is.Equal(expected.GoodCount, actual.GoodCount), msgAndArgs...)
 	}
 }
 
 func assertTimeSpanEqual(t *testing.T, expected data.TimeSpan, actual data.TimeSpan, msgAndArgs ...interface{}) {
 	t.Helper()
-	assert.Equal(t, expected.Begin, actual.Begin, msgAndArgs...)
-	assert.Equal(t, expected.End, actual.End, msgAndArgs...)
-	assert.Equal(t, expected.Duration, actual.Duration, msgAndArgs...)
+	assert.Check(t, is.DeepEqual(expected.Begin, actual.Begin), msgAndArgs...)
+	assert.Check(t, is.DeepEqual(expected.End, actual.End), msgAndArgs...)
+	assert.Check(t, is.Equal(expected.Duration, actual.Duration), msgAndArgs...)
 }
 
 type BlockTest struct {
@@ -383,10 +383,10 @@ func TestData(t *testing.T) {
 func assertRunsEqual(t *testing.T, expect, actual data.Runs) {
 	t.Helper()
 	if expect.GoodPackets != nil {
-		require.Equal(t, expect.GoodPackets, actual.GoodPackets)
+		assert.DeepEqual(t, expect.GoodPackets, actual.GoodPackets)
 	}
 	if expect.DroppedPackets != nil {
-		require.Equal(t, expect.DroppedPackets, actual.DroppedPackets)
+		assert.DeepEqual(t, expect.DroppedPackets, actual.DroppedPackets)
 	}
 }
 
@@ -406,15 +406,15 @@ func sameIP(input []ping.PingDataPoint) []ping.PingResults {
 // NOTE doesn't iterate the data in duration order.
 func blockVerify(t *testing.T, graphData *data.Data, test DataTestCase) {
 	t.Helper()
-	require.Len(t, graphData.Blocks, len(test.BlockTest.ExpectedBlocks))
+	assert.Assert(t, is.Len(graphData.Blocks, len(test.BlockTest.ExpectedBlocks)))
 	for i, block := range graphData.Blocks {
 		expectedBlock := test.BlockTest.ExpectedBlocks[i]
 		assertStatsEqual(t, *expectedBlock.Header.Stats, *block.Header.Stats, 4)
 		assertTimeSpanEqual(t, *expectedBlock.Header.TimeSpan, *block.Header.TimeSpan, 4)
 		if test.BlockTest.CheckRaw {
-			require.Lenf(t, block.Raw, len(expectedBlock.Raw), "block %d was unexpected len", i)
+			assert.Assert(t, is.Len(block.Raw, len(expectedBlock.Raw)), "block %d was unexpected len", i)
 			for rawIndex, datum := range block.Raw {
-				assert.Equal(t, expectedBlock.Raw[rawIndex], datum, "raw inside block %d at index %d", i, rawIndex)
+				assert.Check(t, is.DeepEqual(expectedBlock.Raw[rawIndex], datum), "raw inside block %d at index %d", i, rawIndex)
 			}
 		}
 	}
@@ -506,11 +506,11 @@ func TestDataOrdering(t *testing.T) {
 				for i := range graphData.TotalCount {
 					collected[i] = graphData.Get(i)
 				}
-				assert.NotEqual(t, test.ExpectedOrder, collected)
+				assert.Check(t, !is.DeepEqual(test.ExpectedOrder, collected)().Success())
 			} else {
 				for i := range graphData.TotalCount {
 					cur := graphData.Get(i)
-					assert.Equal(t, test.ExpectedOrder[i], cur)
+					assert.Check(t, is.DeepEqual(test.ExpectedOrder[i], cur))
 				}
 			}
 		})

@@ -16,8 +16,9 @@ import (
 	"github.com/Lexer747/AcciPing/graph/th"
 	"github.com/Lexer747/AcciPing/ping"
 	"github.com/Lexer747/AcciPing/utils/sliceutils"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	utils_th "github.com/Lexer747/AcciPing/utils/th"
+	"gotest.tools/v3/assert"
+	is "gotest.tools/v3/assert/cmp"
 )
 
 func newTimeSpan(start, end time.Time) *data.TimeSpan {
@@ -30,75 +31,82 @@ func newTimeSpan(start, end time.Time) *data.TimeSpan {
 
 func TestGraphData_TimeSpan_files(t *testing.T) {
 	t.Parallel()
+	// [time.Local] would not work for this test for all computers since that would rely on the timezone being
+	// the same for this file (which is fixed now, stored as UnixMilli), therefore for anytime comparisons we
+	// must ensure we specify the same timezone as that file was implicitly recorded in.
+	fileTimeZone := time.FixedZone("File Zone", 0)
 	t.Run("Many spans over gaps",
 		TimeSpanFileTest{
 			File:              "../data/testdata/input/TimeSpanTestCase1.pings",
 			ExpectedSpanCount: 6,
 			ExpectedSpans: []*data.TimeSpan{
 				newTimeSpan(
-					time.Date(2024, time.October, 31, 10, 42, 8, 531000000, time.Local),
-					time.Date(2024, time.October, 31, 10, 42, 58, 531000000, time.Local),
+					time.Date(2024, time.October, 31, 10, 42, 8, 531000000, fileTimeZone),
+					time.Date(2024, time.October, 31, 10, 42, 58, 531000000, fileTimeZone),
 				),
 				newTimeSpan(
-					time.Date(2024, time.November, 1, 13, 52, 55, 304000000, time.Local),
-					time.Date(2024, time.November, 1, 13, 53, 1, 305000000, time.Local),
+					time.Date(2024, time.November, 1, 13, 52, 55, 304000000, fileTimeZone),
+					time.Date(2024, time.November, 1, 13, 53, 1, 305000000, fileTimeZone),
 				),
 				newTimeSpan(
-					time.Date(2024, time.November, 1, 13, 53, 58, 355000000, time.Local),
-					time.Date(2024, time.November, 1, 13, 54, 34, 356000000, time.Local),
+					time.Date(2024, time.November, 1, 13, 53, 58, 355000000, fileTimeZone),
+					time.Date(2024, time.November, 1, 13, 54, 34, 356000000, fileTimeZone),
 				),
 				newTimeSpan(
-					time.Date(2024, time.November, 8, 11, 29, 5, 732000000, time.Local),
-					time.Date(2024, time.November, 8, 11, 29, 14, 733000000, time.Local),
+					time.Date(2024, time.November, 8, 11, 29, 5, 732000000, fileTimeZone),
+					time.Date(2024, time.November, 8, 11, 29, 14, 733000000, fileTimeZone),
 				),
 				newTimeSpan(
-					time.Date(2024, time.November, 8, 11, 29, 39, 877000000, time.Local),
-					time.Date(2024, time.November, 8, 11, 29, 41, 878000000, time.Local),
+					time.Date(2024, time.November, 8, 11, 29, 39, 877000000, fileTimeZone),
+					time.Date(2024, time.November, 8, 11, 29, 41, 878000000, fileTimeZone),
 				),
 				newTimeSpan(
-					time.Date(2024, time.November, 8, 11, 45, 37, 177000000, time.Local),
-					time.Date(2024, time.November, 8, 11, 45, 41, 178000000, time.Local),
+					time.Date(2024, time.November, 8, 11, 45, 37, 177000000, fileTimeZone),
+					time.Date(2024, time.November, 8, 11, 45, 41, 178000000, fileTimeZone),
 				),
 			},
 		}.Run,
 	)
+	fileTimeZone = time.FixedZone("File Zone", 3_600)
 	t.Run("medium-395-02-08-2024.pings",
 		TimeSpanFileTest{
 			File:              "../data/testdata/input/medium-395-02-08-2024.pings",
 			ExpectedSpanCount: 1,
 			ExpectedSpans: []*data.TimeSpan{
 				newTimeSpan(
-					time.Date(2024, time.August, 2, 20, 40, 41, 175000000, time.Local),
-					time.Date(2024, time.August, 2, 20, 47, 15, 175000000, time.Local),
+					time.Date(2024, time.August, 2, 20, 40, 41, 175000000, fileTimeZone),
+					time.Date(2024, time.August, 2, 20, 47, 15, 175000000, fileTimeZone),
 				),
 			},
 		}.Run,
 	)
+
+	fileTimeZone = time.FixedZone("File Zone", 3_600)
 	t.Run("long-gap.pings",
 		TimeSpanFileTest{
 			File:              "../data/testdata/input/long-gap.pings",
 			ExpectedSpanCount: 5,
 			ExpectedSpans: []*data.TimeSpan{
 				newTimeSpan(
-					time.Date(2024, time.August, 3, 0, 41, 6, 657000000, time.Local),
-					time.Date(2024, time.August, 3, 0, 41, 37, 657000000, time.Local),
+					time.Date(2024, time.August, 3, 0, 41, 6, 657000000, fileTimeZone),
+					time.Date(2024, time.August, 3, 0, 41, 37, 657000000, fileTimeZone),
 				),
 				newTimeSpan(
-					time.Date(2024, time.August, 3, 0, 55, 35, 613000000, time.Local),
-					time.Date(2024, time.August, 3, 0, 55, 50, 614000000, time.Local),
+					time.Date(2024, time.August, 3, 0, 55, 35, 613000000, fileTimeZone),
+					time.Date(2024, time.August, 3, 0, 55, 50, 614000000, fileTimeZone),
 				),
 				newTimeSpan(
-					time.Date(2024, time.August, 3, 1, 2, 10, 106000000, time.Local),
-					time.Date(2024, time.August, 3, 1, 2, 28, 106000000, time.Local),
+					time.Date(2024, time.August, 3, 1, 2, 10, 106000000, fileTimeZone),
+					time.Date(2024, time.August, 3, 1, 2, 28, 106000000, fileTimeZone),
 				),
 				newTimeSpan(
-					time.Date(2024, time.August, 3, 10, 52, 20, 596000000, time.Local),
-					time.Date(2024, time.August, 3, 10, 55, 6, 597000000, time.Local),
+					time.Date(2024, time.August, 3, 10, 52, 20, 596000000, fileTimeZone),
+					time.Date(2024, time.August, 3, 10, 55, 6, 597000000, fileTimeZone),
 				),
 				// Several day gap
 				newTimeSpan(
-					time.Date(2024, time.August, 19, 18, 51, 55, 743000000, time.Local),
-					time.Date(2024, time.August, 19, 18, 52, 25, 744000000, time.Local),
+					time.Date(2024, time.August, 19, 18, 51, 55, 743000000, fileTimeZone),
+					time.Date(2024, time.August, 19, 18, 52, 25, 744000000, fileTimeZone),
 				),
 			},
 		}.Run,
@@ -109,9 +117,6 @@ var origin = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 
 func Test_Basic(t *testing.T) {
 	t.Parallel()
-	require.NotPanics(t, func() {
-		_ = graphdata.NewGraphData(data.NewData("foo.bar"))
-	})
 	t.Run("Basic",
 		BasicTimeSpanTest{
 			Points: []ping.PingDataPoint{
@@ -161,7 +166,7 @@ func (test BasicTimeSpanTest) Run(t *testing.T) {
 	for _, point := range test.Points {
 		gd.AddPoint(ping.PingResults{Data: point})
 	}
-	require.Len(t, gd.LockFreeSpanInfos(), test.ExpectedSpanCount)
+	assert.Assert(t, is.Len(gd.LockFreeSpanInfos(), test.ExpectedSpanCount))
 
 	assertEveryPointHasSpan(t, gd, gd.LockFreeSpanInfos())
 }
@@ -172,16 +177,16 @@ func assertEveryPointHasSpan(t *testing.T, gd *graphdata.GraphData, actual []*gr
 	for i := range iter.Total {
 		p := iter.Get(i)
 		timestamp := p.Timestamp
-		sliceutils.OneOf(actual, func(span *graphdata.SpanInfo) bool { return span.TimeSpan.Contains(timestamp) })
-		assert.Truef(
-			t,
-			sliceutils.OneOf(actual, func(span *graphdata.SpanInfo) bool { return span.TimeSpan.Contains(timestamp) }),
+		containsTimestamp := func(span *graphdata.SpanInfo) bool { return span.TimeSpan.Contains(timestamp) }
+		sliceutils.OneOf(actual, containsTimestamp)
+		timespanToString := func(si *graphdata.SpanInfo) string {
+			return si.TimeSpan.String()
+		}
+		assert.Check(t,
+			sliceutils.OneOf(actual, containsTimestamp),
 			"Missing %q from spans: %+v",
 			timestamp.Format("02 Jan 2006 15:04:05.000000"),
-			strings.Join(sliceutils.Map(actual,
-				func(si *graphdata.SpanInfo) string {
-					return si.TimeSpan.String()
-				}), ", "),
+			strings.Join(sliceutils.Map(actual, timespanToString), ", "),
 		)
 	}
 }
@@ -203,13 +208,13 @@ func (test TimeSpanTest) Run(t *testing.T) {
 			index++
 		}
 		actual := gd.LockFreeSpanInfos()
-		assert.Equal(t, graphdata.Spans(expectedSpans), actual, "index %d | %+v", i, span)
+		assert.Check(t, is.DeepEqual(graphdata.Spans(expectedSpans), actual, utils_th.AllowAllUnexported), "index %d | %+v", i, span)
 	}
 
 	actual := gd.LockFreeSpanInfos()
-	require.Len(t, actual, len(expectedSpans))
+	assert.Assert(t, is.Len(actual, len(expectedSpans)))
 	for i := range actual {
-		assert.Equal(t, expectedSpans[i], actual[i], "index %d", i)
+		assert.Check(t, is.DeepEqual(expectedSpans[i], actual[i], utils_th.AllowAllUnexported), "index %d", i)
 	}
 	assertEveryPointHasSpan(t, gd, actual)
 }
@@ -226,11 +231,11 @@ func (test TimeSpanFileTest) Run(t *testing.T) {
 	d := th.GetFromFile(t, test.File)
 	gd := graphdata.NewGraphData(d)
 	actualSpans := gd.LockFreeSpanInfos()
-	require.Len(t, actualSpans, test.ExpectedSpanCount)
+	assert.Assert(t, is.Len(actualSpans, test.ExpectedSpanCount))
 	if len(test.ExpectedSpans) != 0 {
 		actual := sliceutils.Map(actualSpans, func(si *graphdata.SpanInfo) *data.TimeSpan { return si.TimeSpan })
 		for i, span := range test.ExpectedSpans {
-			require.Equal(t, span, actual[i], "index %d", i)
+			assert.Assert(t, is.DeepEqual(span, actual[i]), "index %d", i)
 		}
 	}
 	assertEveryPointHasSpan(t, gd, gd.LockFreeSpanInfos())

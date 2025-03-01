@@ -7,17 +7,21 @@
 package graphdata
 
 import (
-	"cmp"
 	"fmt"
 	"io"
-	"slices"
 	"sync"
 	"time"
 
 	"github.com/Lexer747/AcciPing/graph/data"
 	"github.com/Lexer747/AcciPing/ping"
-	"github.com/Lexer747/AcciPing/utils/check"
 )
+
+// NOTE: GraphData does not have a [data.FromCompact] implementation because it is meant to be less strict layer on-top
+// the [data] package, which contains types and values which are only useful in drawing a graph but are not meaningful
+// to actual data captured by a series of pings.
+
+// We expose public locks because we provide a handful of APIs which are meant to be used while the lock is already
+// held. In particular the drawing code is expected to do many large reads and unlock early while it paints this result.
 
 type GraphData struct {
 	data      *data.Data
@@ -71,13 +75,6 @@ func (gd *GraphData) AsCompact(w io.Writer) error {
 	defer gd.m.Unlock()
 	return gd.data.AsCompact(w)
 }
-
-// NOTE: GraphData does not have a [data.FromCompact] implementation because it is meant to be less strict layer on-top
-// the [data] package, which contains types and values which are only useful in drawing a graph but are not meaningful
-// to actual data captured by a series of pings.
-
-// We expose public locks because we provide a handful of APIs which are meant to be used while the lock is already
-// held. In particular the drawing code is expected to do many large reads and unlock early while it paints this result.
 
 func (gd *GraphData) Lock() {
 	gd.m.Lock()
@@ -236,18 +233,6 @@ func (s Spans) Count() int {
 	return count
 }
 
-func (s Spans) Get(i int64) int {
-	index, ok := slices.BinarySearchFunc(s, i, func(si *SpanInfo, index int64) int {
-		if si.end >= index && si.start <= index {
-			return 0
-		} else {
-			return cmp.Compare(si.end, index)
-		}
-	})
-	check.Checkf(ok, "%d index out of bounds for SpanInfo", i)
-	return index
-}
-
 type Iter struct {
 	Total int64
 	d     *data.Data
@@ -264,10 +249,6 @@ func (gd *GraphData) LockFreeIter() *Iter {
 
 func (i *Iter) Get(index int64) ping.PingDataPoint {
 	return i.d.Get(index)
-}
-
-func (i *Iter) GetWithSpan(index int64) (ping.PingDataPoint, int) {
-	return i.d.Get(index), i.spans.Get(index)
 }
 
 func (i *Iter) IsLast(index int64) bool {

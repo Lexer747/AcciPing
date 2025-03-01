@@ -1,6 +1,6 @@
 // Use of this source code is governed by a GPL-2 license that can be found in the LICENSE file.
 //
-// Copyright 2024 Lexer747
+// Copyright 2024-2025 Lexer747
 //
 // SPDX-License-Identifier: GPL-2.0-only
 
@@ -13,6 +13,7 @@ import (
 	"path"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Lexer747/AcciPing/graph"
 	"github.com/Lexer747/AcciPing/graph/data"
@@ -20,7 +21,9 @@ import (
 	termTh "github.com/Lexer747/AcciPing/graph/terminal/th"
 	graphTh "github.com/Lexer747/AcciPing/graph/th"
 	"github.com/Lexer747/AcciPing/ping"
-	"github.com/stretchr/testify/require"
+	"github.com/Lexer747/AcciPing/utils/env"
+	"gotest.tools/v3/assert"
+	is "gotest.tools/v3/assert/cmp"
 )
 
 const (
@@ -29,8 +32,9 @@ const (
 )
 
 type FileTest struct {
-	FileName string
-	Sizes    []terminal.Size
+	FileName       string
+	Sizes          []terminal.Size
+	TimeZoneOfFile *time.Location
 }
 
 var StandardTestSizes = []terminal.Size{
@@ -41,47 +45,60 @@ var StandardTestSizes = []terminal.Size{
 	{Height: 74, Width: 354}, // Fullscreen
 }
 
+var winter = time.FixedZone("+0", 0)
+var summer = time.FixedZone("+1", 3_600)
+
 func TestFiles(t *testing.T) {
 	t.Parallel()
 	t.Run("Small", FileTest{
-		FileName: "small-2-02-08-2024",
-		Sizes:    StandardTestSizes,
+		FileName:       "small-2-02-08-2024",
+		Sizes:          StandardTestSizes,
+		TimeZoneOfFile: summer,
 	}.Run)
 	t.Run("Medium", FileTest{
-		FileName: "medium-395-02-08-2024",
-		Sizes:    StandardTestSizes,
+		FileName:       "medium-395-02-08-2024",
+		Sizes:          StandardTestSizes,
+		TimeZoneOfFile: summer,
 	}.Run)
 	t.Run("Medium with Drops", FileTest{
-		FileName: "medium-309-with-induced-drops-02-08-2024",
-		Sizes:    StandardTestSizes,
+		FileName:       "medium-309-with-induced-drops-02-08-2024",
+		Sizes:          StandardTestSizes,
+		TimeZoneOfFile: summer,
 	}.Run)
 	t.Run("Medium with minute Gaps", FileTest{
-		FileName: "medium-minute-gaps",
-		Sizes:    StandardTestSizes,
+		FileName:       "medium-minute-gaps",
+		Sizes:          StandardTestSizes,
+		TimeZoneOfFile: summer,
 	}.Run)
 	t.Run("Medium with hour Gaps", FileTest{
-		FileName: "medium-hour-gaps",
-		Sizes:    StandardTestSizes,
+		FileName:       "medium-hour-gaps",
+		Sizes:          StandardTestSizes,
+		TimeZoneOfFile: summer,
 	}.Run)
 	t.Run("Hotel", FileTest{
-		FileName: "medium-hotel",
-		Sizes:    StandardTestSizes,
+		FileName:       "medium-hotel",
+		Sizes:          StandardTestSizes,
+		TimeZoneOfFile: summer,
 	}.Run)
 	t.Run("Large Hotel", FileTest{
-		FileName: "large-hotel",
-		Sizes:    StandardTestSizes,
+		FileName:       "large-hotel",
+		Sizes:          StandardTestSizes,
+		TimeZoneOfFile: summer,
 	}.Run)
 	t.Run("Gap", FileTest{
-		FileName: "long-gap",
-		Sizes:    StandardTestSizes,
+		FileName:       "long-gap",
+		Sizes:          StandardTestSizes,
+		TimeZoneOfFile: summer,
 	}.Run)
 	t.Run("Smoke Test", FileTest{
-		FileName: "smoke",
-		Sizes:    StandardTestSizes,
+		FileName:       "smoke",
+		Sizes:          StandardTestSizes,
+		TimeZoneOfFile: winter,
 	}.Run)
 	t.Run("Span bugs", FileTest{
-		FileName: "huge-over-days",
-		Sizes:    StandardTestSizes,
+		FileName:       "huge-over-days",
+		Sizes:          StandardTestSizes,
+		TimeZoneOfFile: winter,
 	}.Run)
 }
 
@@ -89,6 +106,7 @@ func (ft FileTest) Run(t *testing.T) {
 	t.Parallel()
 
 	d := graphTh.GetFromFile(t, ft.getInputFileName())
+	d = d.In(ft.TimeZoneOfFile)
 	for _, size := range ft.Sizes {
 		actualStrings := produceFrame(t, size, d)
 
@@ -101,16 +119,20 @@ func (ft FileTest) assertEqual(t *testing.T, size terminal.Size, actualStrings [
 	t.Helper()
 	outputFile := ft.getOutputFileName(size)
 	expectedBytes, err := os.ReadFile(outputFile)
-	require.NoError(t, err)
+	assert.NilError(t, err)
 	actualJoined := strings.Join(actualStrings, "\n")
-	actualOutput := outputFile + ".actual"
-	if string(expectedBytes) != actualJoined {
-		err := os.WriteFile(actualOutput, []byte(actualJoined), 0o777)
-		require.NoError(t, err)
-		t.Logf("Diff in outputs see %s", actualOutput)
-		t.Fail()
+	expected := string(expectedBytes)
+	if env.LOCAL_FRAME_DIFFS() {
+		actualOutput := outputFile + ".actual"
+		if expected != actualJoined {
+			err := os.WriteFile(actualOutput, []byte(actualJoined), 0o777)
+			assert.NilError(t, err)
+			t.Fatalf("Diff in outputs see %s", actualOutput)
+		} else {
+			os.Remove(actualOutput)
+		}
 	} else {
-		os.Remove(actualOutput)
+		assert.Check(t, is.Equal(expected, actualJoined), outputFile)
 	}
 }
 
@@ -126,9 +148,9 @@ func (ft FileTest) update(t *testing.T, size terminal.Size, actualStrings []stri
 	t.Helper()
 	outputFile := ft.getOutputFileName(size)
 	err := os.MkdirAll(path.Dir(outputFile), 0o777)
-	require.NoError(t, err)
+	assert.NilError(t, err)
 	err = os.WriteFile(outputFile, []byte(strings.Join(actualStrings, "\n")), 0o777)
-	require.NoError(t, err)
+	assert.NilError(t, err)
 	t.Fail()
 	t.Log("Only call update drawing once")
 }
@@ -140,11 +162,11 @@ func produceFrame(t *testing.T, size terminal.Size, data *data.Data) []string {
 	ctx, cancel := context.WithCancel(context.Background())
 	// cancel this, we don't want the graph collecting from the channel in the background
 	cancel()
-	require.NoError(t, err)
+	assert.NilError(t, err)
 	pingChannel := make(chan ping.PingResults)
 	close(pingChannel)
 	g, err := graph.NewGraphWithData(ctx, pingChannel, term, 0, data)
-	require.NoError(t, err)
+	assert.NilError(t, err)
 	defer func() { stdin.WriteCtrlC(t) }()
 	output := makeBuffer(size)
 	return playAnsiOntoStringBuffer(g.ComputeFrame(), output, size)
