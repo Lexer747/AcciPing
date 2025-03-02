@@ -58,6 +58,7 @@ linters:
   enable-all: true
   disable:
     - cyclop
+    - durationcheck
     - errname
     - execinquery
     - exhaustruct

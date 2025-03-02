@@ -14,6 +14,7 @@ import (
 	"runtime/pprof"
 	"time"
 
+	backoff "github.com/Lexer747/AcciPing/backoff"
 	"github.com/Lexer747/AcciPing/draw"
 	"github.com/Lexer747/AcciPing/files"
 	"github.com/Lexer747/AcciPing/graph"
@@ -42,7 +43,6 @@ func (app *Application) Run(
 	channel chan ping.PingResults,
 	existingData *data.Data,
 ) error {
-
 	// The ping channel which is already running needs to be duplicated, providing one to the Graph and second
 	// to a file writer. This de-couples the processes, we don't want the GUI to affect storing data and vice
 	// versa.
@@ -105,6 +105,7 @@ func loadFile(file, url string) (*data.Data, *os.File) {
 
 func (app *Application) writeToFile(ctx context.Context, ourData *data.Data, input chan ping.PingResults) {
 	defer app.toUpdate.Close()
+	backoff := backoff.NewExponentialBackoff(500 * time.Millisecond)
 	for {
 		select {
 		case <-ctx.Done():
@@ -113,28 +114,20 @@ func (app *Application) writeToFile(ctx context.Context, ourData *data.Data, inp
 			if !ok {
 				return
 			}
-			_, err := app.toUpdate.Stat()
-			if err != nil {
-				app.errorChannel <- err
-				// TODO exponential falloff helper
-				<-time.After(500 * time.Millisecond)
-				continue
-			}
 			ourData.AddPoint(p)
-			_, err = app.toUpdate.Seek(0, 0)
+			_, err := app.toUpdate.Seek(0, 0)
 			if err != nil {
 				app.errorChannel <- err
-				// TODO exponential falloff helper
-				<-time.After(500 * time.Millisecond)
+				backoff.Wait()
 				continue
 			}
 			err = ourData.AsCompact(app.toUpdate)
 			if err != nil {
 				app.errorChannel <- err
-				// TODO exponential falloff helper
-				<-time.After(500 * time.Millisecond)
+				backoff.Wait()
 				continue
 			}
+			backoff.Success()
 		}
 	}
 }

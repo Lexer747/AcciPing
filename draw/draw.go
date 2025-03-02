@@ -20,6 +20,7 @@ type Buffer struct {
 	storage []*bytes.Buffer
 }
 
+// TODO paint buffer should be application level and agnostic to the draw buffer itself.
 func NewPaintBuffer() *Buffer {
 	return newBuffer(int(indexCount.Load()))
 }

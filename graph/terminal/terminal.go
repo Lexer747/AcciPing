@@ -208,8 +208,7 @@ type listenResult struct {
 
 func (t *Terminal) beingListening(ctx context.Context) {
 	buffer := make([]byte, 10)
-	// TODO should be buffered? Are we ok dropping inputs?
-	listenChannel := make(chan listenResult)
+	listenChannel := make(chan listenResult, 10)
 	processingChannel := make(chan struct{})
 	// Create a go-routine which continuously reads from stdin
 	go func() {
