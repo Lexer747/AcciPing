@@ -369,9 +369,9 @@ func (ts TimeSpan) FormatDraw(width, padding int) (string, []string) {
 	case ts.Duration > halfYear:
 		format = firstFormat
 	case ts.Duration > halfMonth:
-		format = "Jan 06 15:04"
+		format = "Jan 02 15:04"
 	case ts.Duration > halfDay:
-		format = "06 15:04:05"
+		format = "02 15:04:05"
 	case ts.Duration > 15*time.Minute:
 		format = "15:04:05"
 	case ts.Duration > time.Minute:

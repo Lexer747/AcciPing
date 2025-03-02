@@ -1,6 +1,6 @@
 // Use of this source code is governed by a GPL-2 license that can be found in the LICENSE file.
 //
-// Copyright 2024 Lexer747
+// Copyright 2024-2025 Lexer747
 //
 // SPDX-License-Identifier: GPL-2.0-only
 
@@ -82,9 +82,7 @@ type Number interface {
 	constraints.Float | constraints.Signed
 }
 
-// Abs returns a concrete, but constraints confuse this linter.
-//
-//nolint:ireturn
+// Abs returns the absolute value of a number.
 func Abs[N Number](n N) N {
 	if n < 0 {
 		return N(-1) * n

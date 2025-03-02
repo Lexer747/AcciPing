@@ -15,11 +15,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Lexer747/AcciPing/draw"
 	"github.com/Lexer747/AcciPing/graph"
 	"github.com/Lexer747/AcciPing/graph/data"
 	"github.com/Lexer747/AcciPing/graph/terminal"
 	termTh "github.com/Lexer747/AcciPing/graph/terminal/th"
 	graphTh "github.com/Lexer747/AcciPing/graph/th"
+	"github.com/Lexer747/AcciPing/gui"
 	"github.com/Lexer747/AcciPing/ping"
 	"github.com/Lexer747/AcciPing/utils/env"
 	"gotest.tools/v3/assert"
@@ -127,7 +129,8 @@ func (ft FileTest) assertEqual(t *testing.T, size terminal.Size, actualStrings [
 		if expected != actualJoined {
 			err := os.WriteFile(actualOutput, []byte(actualJoined), 0o777)
 			assert.NilError(t, err)
-			t.Fatalf("Diff in outputs see %s", actualOutput)
+			t.Logf("Diff in outputs see %s", actualOutput)
+			t.Fail()
 		} else {
 			os.Remove(actualOutput)
 		}
@@ -165,8 +168,7 @@ func produceFrame(t *testing.T, size terminal.Size, data *data.Data) []string {
 	assert.NilError(t, err)
 	pingChannel := make(chan ping.PingResults)
 	close(pingChannel)
-	g, err := graph.NewGraphWithData(ctx, pingChannel, term, 0, data)
-	assert.NilError(t, err)
+	g := graph.NewGraphWithData(ctx, pingChannel, term, gui.NoGUI(), 0, data, draw.NewPaintBuffer())
 	defer func() { stdin.WriteCtrlC(t) }()
 	output := makeBuffer(size)
 	return playAnsiOntoStringBuffer(g.ComputeFrame(), output, size)

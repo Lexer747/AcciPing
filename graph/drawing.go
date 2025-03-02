@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Lexer747/AcciPing/drawbuffer"
+	"github.com/Lexer747/AcciPing/draw"
 	"github.com/Lexer747/AcciPing/graph/data"
 	"github.com/Lexer747/AcciPing/graph/graphdata"
 	"github.com/Lexer747/AcciPing/graph/terminal"
@@ -23,6 +23,7 @@ import (
 	"github.com/Lexer747/AcciPing/ping"
 	"github.com/Lexer747/AcciPing/utils"
 	"github.com/Lexer747/AcciPing/utils/check"
+	"github.com/Lexer747/AcciPing/utils/errors"
 	"github.com/Lexer747/AcciPing/utils/numeric"
 	"github.com/Lexer747/AcciPing/utils/sliceutils"
 	"github.com/Lexer747/AcciPing/utils/timeutils"
@@ -57,43 +58,81 @@ func (g *Graph) computeFrame(timeBetweenFrames time.Duration, drawSpinner bool) 
 	}
 	if count == g.lastFrame.PacketCount && g.lastFrame.Match(s) {
 		g.data.Unlock() // fast path the frame didn't change
+		if updateGui := g.checkGUI(spinnerValue); updateGui != nil {
+			return updateGui
+		}
+		// Even faster path nothing at all too update
 		return func(w io.Writer) error {
 			return utils.Err(w.Write([]byte(spinnerValue)))
 		}
 	}
 
-	g.drawingBuffer.Reset()
+	g.drawingBuffer.Reset(draw.GraphIndexes...)
 
 	header := g.data.LockFreeHeader()
 	x := computeXAxis(
-		g.drawingBuffer.Get(xAxisIndex),
-		g.drawingBuffer.Get(barIndex),
+		g.drawingBuffer.Get(draw.XAxisIndex),
+		g.drawingBuffer.Get(draw.BarIndex),
 		s,
 		header.TimeSpan,
 		g.data.LockFreeSpanInfos(),
 	)
-	y := computeYAxis(g.drawingBuffer.Get(yAxisIndex), s, header.Stats, g.data.LockFreeURL())
+	y := computeYAxis(g.drawingBuffer.Get(draw.YAxisIndex), s, header.Stats, g.data.LockFreeURL())
 	computeFrame(
-		g.drawingBuffer.Get(gradientIndex),
-		g.drawingBuffer.Get(dataIndex),
-		g.drawingBuffer.Get(keyIndex),
+		g.drawingBuffer.Get(draw.GradientIndex),
+		g.drawingBuffer.Get(draw.DataIndex),
+		g.drawingBuffer.Get(draw.KeyIndex),
 		g.data.LockFreeIter(),
 		g.data.LockFreeRuns(),
 		x, y, s,
 	)
-	g.drawingBuffer.Get(spinnerIndex).WriteString(spinnerValue)
-	finished := paint(g.drawingBuffer)
+	g.drawingBuffer.Get(draw.SpinnerIndex).WriteString(spinnerValue)
 	// Everything we need is now cached we can unlock a bit early while we tidy up for the next frame
+	paintFrame := withGUI(g.drawingBuffer)
+	noGUI := withoutGUI(g.drawingBuffer)
 	g.data.Unlock()
 	g.lastFrame = frame{
-		PacketCount:  count,
-		yAxis:        y,
-		xAxis:        x,
-		framePainter: finished,
-		spinnerIndex: g.lastFrame.spinnerIndex,
+		PacketCount:       count,
+		yAxis:             y,
+		xAxis:             x,
+		spinnerIndex:      g.lastFrame.spinnerIndex,
+		framePainter:      paintFrame,
+		framePainterNoGui: noGUI,
 	}
 
-	return finished
+	return paintFrame
+}
+
+func (g *Graph) checkGUI(spinnerValue string) func(io.Writer) error {
+	state := g.guiI.GetState()
+	if state.ShouldDraw() && state.ShouldInvalidate() {
+		return func(w io.Writer) error {
+			defer g.guiI.Drawn(state)
+			return errors.Join(
+				onlyGUI(g.drawingBuffer)(w),
+				g.lastFrame.framePainterNoGui(w),
+				utils.Err(w.Write([]byte(spinnerValue))),
+			)
+		}
+	} else if state.ShouldDraw() {
+		return func(w io.Writer) error {
+			defer g.guiI.Drawn(state)
+			return errors.Join(
+				onlyGUI(g.drawingBuffer)(w),
+				utils.Err(w.Write([]byte(spinnerValue))),
+			)
+		}
+	} else if state.ShouldInvalidate() {
+		return func(w io.Writer) error {
+			defer g.guiI.Drawn(state)
+			return errors.Join(
+				onlyGUI(g.drawingBuffer)(w),
+				g.lastFrame.framePainterNoGui(w),
+				utils.Err(w.Write([]byte(spinnerValue))),
+			)
+		}
+	}
+	return nil
 }
 
 func translate(p ping.PingDataPoint, x *XAxisSpanInfo, y yAxis, s terminal.Size) (yCord, xCord int) {
@@ -305,11 +344,11 @@ func shouldGradient(runs *data.Runs) bool {
 	return runs.GoodPackets.Longest > 2
 }
 
+// TODO this has a bug when height is less than 12 and it renders no timestamps
 func computeYAxis(toWriteTo *bytes.Buffer, size terminal.Size, stats *data.Stats, url string) yAxis {
 	toWriteTo.Grow(size.Height)
 
-	finalTitle := makeTitle(size, stats, url)
-	fmt.Fprint(toWriteTo, finalTitle)
+	makeTitle(toWriteTo, size, stats, url)
 
 	gapSize := 2
 	if size.Height > 20 {
@@ -340,8 +379,7 @@ func computeYAxis(toWriteTo *bytes.Buffer, size terminal.Size, stats *data.Stats
 	}
 }
 
-func makeTitle(size terminal.Size, stats *data.Stats, url string) string {
-	// TODO string builder, or larger buffer impl
+func makeTitle(toWriteTo *bytes.Buffer, size terminal.Size, stats *data.Stats, url string) {
 	const yAxisTitle = "Ping "
 	sizeStr := size.String()
 	titleBegin := ansi.Cyan(url)
@@ -353,12 +391,12 @@ func makeTitle(size terminal.Size, stats *data.Stats, url string) string {
 	}
 	title := titleBegin + statsStr + titleEnd
 	titleIndent := (size.Width / 2) - (len(title) / 2)
-
-	finalTitle := ansi.Home + ansi.Magenta(yAxisTitle) + ansi.CursorForward(titleIndent) + title
+	toWriteTo.WriteString(
+		ansi.Home + ansi.Magenta(yAxisTitle) + ansi.CursorForward(titleIndent) + title,
+	)
 	if drawingDebug {
-		finalTitle += ansi.CursorPosition(1, size.Width-1) + ansi.DarkRed(typography.LightBlock)
+		toWriteTo.WriteString(ansi.CursorPosition(1, size.Width-1) + ansi.DarkRed(typography.LightBlock))
 	}
-	return finalTitle
 }
 
 type yAxis struct {
@@ -560,18 +598,35 @@ func (x *xAxisIter) Get(p ping.PingDataPoint) *XAxisSpanInfo {
 	return x.Get(p)
 }
 
-// paint knows how to composite the parts of a frame and the spinner, returning a lambda which will draw the
+// withoutGUI knows how to composite the parts of a frame and the spinner, returning a lambda which will draw
+// the computed frame to the given writer, with no GUI elements.
+func withoutGUI(toDraw *draw.Buffer) func(io.Writer) error {
+	return painter(toDraw, true, draw.GraphIndexes)
+}
+
+// withGUI knows how to composite the parts of a frame and the spinner, returning a lambda which will draw the
 // computed frame to the given writer.
-func paint(toDraw *drawbuffer.Collection) func(toWriteTo io.Writer) error {
+func withGUI(toDraw *draw.Buffer) func(io.Writer) error {
+	return painter(toDraw, true, draw.PaintOrder)
+}
+
+func onlyGUI(toDraw *draw.Buffer) func(io.Writer) error {
+	return painter(toDraw, false, draw.GUIIndexes)
+}
+
+func painter(toDraw *draw.Buffer, clearFrame bool, indexes []draw.Index) func(io.Writer) error {
 	return func(toWriteTo io.Writer) error {
-		// First clear the screen from the last frame
-		err := utils.Err(toWriteTo.Write([]byte(ansi.Clear)))
-		if err != nil {
-			return err
+		if clearFrame {
+			// First clear the screen from the last frame
+			err := utils.Err(toWriteTo.Write([]byte(ansi.Clear)))
+			if err != nil {
+				return err
+			}
 		}
+
 		// Now in paint order, simply forward the bytes onto the writer
-		for _, i := range paintOrder {
-			err = utils.Err(toWriteTo.Write(toDraw.Get(i).Bytes()))
+		for _, i := range indexes {
+			err := utils.Err(toWriteTo.Write(toDraw.Get(i).Bytes()))
 			if err != nil {
 				return err
 			}

@@ -54,7 +54,6 @@ func NoErrf(err error, format string, args ...any) {
 	Checkf(err == nil, format+": %s", append(args, err)...)
 }
 
-//nolint:ireturn
 func Must[T any](t T, err error) T {
 	NoErr(err, "Must")
 	return t
