@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Lexer747/AcciPing/draw"
 	"github.com/Lexer747/AcciPing/graph"
 	"github.com/Lexer747/AcciPing/graph/terminal"
 	"github.com/Lexer747/AcciPing/graph/terminal/th"
@@ -247,8 +248,7 @@ func initTestGraph(t *testing.T, size terminal.Size) (*graph.Graph, func(), erro
 	assert.NilError(t, err)
 	pingChannel := make(chan ping.PingResults)
 	defer close(pingChannel)
-	g, err := graph.NewGraph(ctx, pingChannel, term, 0, "")
-	assert.NilError(t, err)
+	g := graph.NewGraph(ctx, pingChannel, term, 0, "", draw.NewPaintBuffer())
 	return g, func() { stdin.WriteCtrlC(t) }, err
 }
 

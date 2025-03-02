@@ -70,29 +70,31 @@ func NewTerminal() (*Terminal, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Terminal{
+	t := &Terminal{
 		size:          size,
 		listeners:     []Listener{},
 		stdin:         &stdin{realFile: os.Stdin},
 		stdout:        &stdout{realFile: os.Stdout},
 		listenMutex:   &sync.Mutex{},
 		isDynamicSize: true,
-	}, nil
+	}
+	return t, t.supportsRaw()
 }
+
 func NewFixedSizeTerminal(s Size) (*Terminal, error) {
-	return &Terminal{
+	t := &Terminal{
 		size:          s,
 		listeners:     []Listener{},
 		stdin:         &stdin{realFile: os.Stdin},
 		stdout:        &stdout{realFile: os.Stdout},
 		listenMutex:   &sync.Mutex{},
 		isDynamicSize: false,
-	}, nil
+	}
+	return t, t.supportsRaw()
 }
 
-// NewParsedFixedSizeTerminal will construct a new fixed size terminal which cannot change size,
-// parsing the size from the input parameter string, which is in format <H>x<W>, where H and W are
-// integers.
+// NewParsedFixedSizeTerminal will construct a new fixed size terminal which cannot change size, parsing the
+// size from the input parameter string, which is in format <H>x<W>, where H and W are integers.
 func NewParsedFixedSizeTerminal(size string) (*Terminal, error) {
 	s, ok := Parse(size)
 	if !ok {
@@ -100,6 +102,7 @@ func NewParsedFixedSizeTerminal(size string) (*Terminal, error) {
 	}
 	return NewFixedSizeTerminal(s)
 }
+
 func (t *Terminal) Size() Size {
 	return t.size
 }
@@ -112,7 +115,8 @@ type Listener struct {
 	Applicable func(rune) bool
 	// Action the callback which will be invoked when a user inputs the applicable rune, the rune passed is
 	// the same rune passed to applicable. Note the terminal size will have been updated before this called,
-	// but this is actually racey if the user is typing while changing size.
+	// but this is actually racey if the user is typing while changing size. If an error occurs in this action
+	// the terminal will panic and exit.
 	Action func(rune) error
 }
 
@@ -142,18 +146,18 @@ func (userControlCErr) Error() string {
 // The `ctrl-c` listener will also provide the [terminal.UserControlCErr] cause when this happens for use with
 // [error.Is].
 func (t *Terminal) StartRaw(ctx context.Context, stop context.CancelCauseFunc, listeners ...Listener) (func(), error) {
-	closer := func() {}
+	restore := func() {}
 	if !t.isTestTerminal {
 		inFd := int(t.stdin.realFile.Fd())
 		oldState, err := term.MakeRaw(inFd)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to set terminal to raw mode")
 		}
-		closer = func() { _ = term.Restore(inFd, oldState) }
+		restore = func() { _ = term.Restore(inFd, oldState) }
 	}
 	ctrlCAction := func(rune) error {
 		t.Print(ansi.ShowCursor)
-		closer()
+		restore()
 		stop(UserCancelled)
 		return nil
 	}
@@ -177,14 +181,25 @@ func (t *Terminal) StartRaw(ctx context.Context, stop context.CancelCauseFunc, l
 	return t.cleanup, nil
 }
 
-func (t *Terminal) ClearScreen(updateSize bool) error {
-	if updateSize {
+type ClearBehaviour int
+
+const (
+	UpdateSize    ClearBehaviour = 1
+	MoveHome      ClearBehaviour = 2
+	UpdateAndMove ClearBehaviour = 3
+)
+
+func (t *Terminal) ClearScreen(behaviour ClearBehaviour) error {
+	if behaviour == UpdateSize || behaviour == UpdateAndMove {
 		if err := t.UpdateCurrentTerminalSize(); err != nil {
 			return errors.Wrap(err, "while ClearScreen")
 		}
 	}
 	t.Print(strings.Repeat("\n", t.size.Height))
-	err := t.Print(ansi.Clear + ansi.Home)
+	err := t.Print(ansi.Clear)
+	if behaviour == MoveHome || behaviour == UpdateAndMove {
+		err = errors.Join(err, t.Print(ansi.Home))
+	}
 	return errors.Wrap(err, "while ClearScreen")
 }
 
@@ -204,8 +219,7 @@ type listenResult struct {
 
 func (t *Terminal) beingListening(ctx context.Context) {
 	buffer := make([]byte, 10)
-	// TODO should be buffered? Are we ok dropping inputs?
-	listenChannel := make(chan listenResult)
+	listenChannel := make(chan listenResult, 10)
 	processingChannel := make(chan struct{})
 	// Create a go-routine which continuously reads from stdin
 	go func() {
@@ -332,4 +346,11 @@ func NewTestTerminal(stdinReader io.Reader, stdoutWriter io.Writer, terminalSize
 		isDynamicSize:        true,
 		listenMutex:          &sync.Mutex{},
 	}, nil
+}
+
+func (t *Terminal) supportsRaw() error {
+	inFd := int(t.stdin.realFile.Fd())
+	oldState, makeRawErr := term.MakeRaw(inFd)
+	restoreErr := term.Restore(inFd, oldState)
+	return errors.Wrap(errors.Join(makeRawErr, restoreErr), "failed to set terminal to raw mode")
 }

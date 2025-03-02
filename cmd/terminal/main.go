@@ -51,7 +51,7 @@ func main() {
 			return r == 'l'
 		},
 		Action: func(rune) error {
-			return t.ClearScreen(true)
+			return t.ClearScreen(terminal.UpdateSize)
 		},
 	}
 	// Actually start the terminal program.
@@ -61,7 +61,7 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
-	if err = t.ClearScreen(true); err != nil {
+	if err = t.ClearScreen(terminal.UpdateSize); err != nil {
 		panic(err.Error())
 	}
 	t.Print("Press 'l' to clear the screen, any other char to print a line, ctrl-c to quit." + ansi.CursorPosition(2, 1))
