@@ -146,18 +146,18 @@ func (userControlCErr) Error() string {
 // The `ctrl-c` listener will also provide the [terminal.UserControlCErr] cause when this happens for use with
 // [error.Is].
 func (t *Terminal) StartRaw(ctx context.Context, stop context.CancelCauseFunc, listeners ...Listener) (func(), error) {
-	closer := func() {}
+	restore := func() {}
 	if !t.isTestTerminal {
 		inFd := int(t.stdin.realFile.Fd())
 		oldState, err := term.MakeRaw(inFd)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to set terminal to raw mode")
 		}
-		closer = func() { _ = term.Restore(inFd, oldState) }
+		restore = func() { _ = term.Restore(inFd, oldState) }
 	}
 	ctrlCAction := func(rune) error {
 		t.Print(ansi.ShowCursor)
-		closer()
+		restore()
 		stop(UserCancelled)
 		return nil
 	}
@@ -181,14 +181,25 @@ func (t *Terminal) StartRaw(ctx context.Context, stop context.CancelCauseFunc, l
 	return t.cleanup, nil
 }
 
-func (t *Terminal) ClearScreen(updateSize bool) error {
-	if updateSize {
+type ClearBehaviour int
+
+const (
+	UpdateSize    ClearBehaviour = 1
+	MoveHome      ClearBehaviour = 2
+	UpdateAndMove ClearBehaviour = 3
+)
+
+func (t *Terminal) ClearScreen(behaviour ClearBehaviour) error {
+	if behaviour == UpdateSize || behaviour == UpdateAndMove {
 		if err := t.UpdateCurrentTerminalSize(); err != nil {
 			return errors.Wrap(err, "while ClearScreen")
 		}
 	}
 	t.Print(strings.Repeat("\n", t.size.Height))
-	err := t.Print(ansi.Clear + ansi.Home)
+	err := t.Print(ansi.Clear)
+	if behaviour == MoveHome || behaviour == UpdateAndMove {
+		err = errors.Join(err, t.Print(ansi.Home))
+	}
 	return errors.Wrap(err, "while ClearScreen")
 }
 

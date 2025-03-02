@@ -12,6 +12,7 @@ import (
 	"os"
 	"runtime"
 	"runtime/pprof"
+	"strings"
 	"time"
 
 	backoff "github.com/Lexer747/AcciPing/backoff"
@@ -58,7 +59,7 @@ func (app *Application) Run(
 
 	// The graph will take ownership of the data channel and data pointer.
 	app.g = graph.NewGraphWithData(ctx, graphChannel, app.term, app.config.PingsPerMinute, existingData, app.drawBuffer)
-	_ = app.g.Term.ClearScreen(true)
+	_ = app.g.Term.ClearScreen(terminal.UpdateAndMove)
 
 	listeners := []terminal.Listener{}
 	if app.config.TestErrorListener {
@@ -90,9 +91,11 @@ func (app *Application) Init(ctx context.Context, c Config) (channel chan ping.P
 }
 
 func (app *Application) Finish() {
-	_ = app.term.ClearScreen(true)
+	_ = app.term.ClearScreen(terminal.UpdateSize)
 	app.term.Print(app.g.LastFrame())
-	app.term.Print("\n# Summary\n" + app.g.Summarise() + "\n")
+	afterGraph := strings.Repeat("\n", app.term.Size().Height)
+	app.term.Print(afterGraph + "# Summary\nPing Successfully recorded in file '" + app.config.FilePath + "'\n\t" +
+		app.g.Summarise() + "\n")
 }
 
 // TODO incremental read/writes, get the URL ASAP then start the channel, then incremental continuation.

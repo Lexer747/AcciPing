@@ -106,7 +106,7 @@ func (g *Graph) Run(ctx context.Context, stop context.CancelCauseFunc, fps int, 
 
 // OneFrame doesn't run the graph but runs all the code to create and print a single frame to the terminal.
 func (g *Graph) OneFrame() error {
-	if err := g.Term.ClearScreen(true); err != nil {
+	if err := g.Term.ClearScreen(terminal.MoveHome); err != nil {
 		return err
 	}
 	if err := g.Term.UpdateCurrentTerminalSize(); err != nil {
@@ -130,7 +130,7 @@ func (g *Graph) LastFrame() string {
 func (g *Graph) Summarise() string {
 	g.frameMutex.Lock()
 	defer g.frameMutex.Unlock()
-	return g.data.String()
+	return strings.ReplaceAll(g.data.String(), "| ", "\n\t")
 }
 
 func (g *Graph) sink(ctx context.Context) {
