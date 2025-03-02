@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Lexer747/AcciPing/drawbuffer"
+	"github.com/Lexer747/AcciPing/draw"
 	"github.com/Lexer747/AcciPing/graph/data"
 	"github.com/Lexer747/AcciPing/graph/graphdata"
 	"github.com/Lexer747/AcciPing/graph/terminal"
@@ -34,11 +34,18 @@ type Graph struct {
 	frameMutex *sync.Mutex
 	lastFrame  frame
 
-	drawingBuffer *drawbuffer.Collection
+	drawingBuffer *draw.Buffer
 }
 
-func NewGraph(ctx context.Context, input chan ping.PingResults, t *terminal.Terminal, pingsPerMinute float64, URL string) (*Graph, error) {
-	return NewGraphWithData(ctx, input, t, pingsPerMinute, data.NewData(URL))
+func NewGraph(
+	ctx context.Context,
+	input chan ping.PingResults,
+	t *terminal.Terminal,
+	pingsPerMinute float64,
+	URL string,
+	drawingBuffer *draw.Buffer,
+) *Graph {
+	return NewGraphWithData(ctx, input, t, pingsPerMinute, data.NewData(URL), drawingBuffer)
 }
 
 func NewGraphWithData(
@@ -47,7 +54,8 @@ func NewGraphWithData(
 	t *terminal.Terminal,
 	pingsPerMinute float64,
 	data *data.Data,
-) (*Graph, error) {
+	drawingBuffer *draw.Buffer,
+) *Graph {
 	g := &Graph{
 		Term:           t,
 		sinkAlive:      true,
@@ -56,13 +64,13 @@ func NewGraphWithData(
 		data:           graphdata.NewGraphData(data),
 		frameMutex:     &sync.Mutex{},
 		lastFrame:      frame{},
-		drawingBuffer:  drawbuffer.NewCollection(int(indexCount.Load())),
+		drawingBuffer:  drawingBuffer,
 	}
 	if ctx != nil {
 		// A nil context is valid: It means that no new data is expected and the input channel isn't active
 		go g.sink(ctx)
 	}
-	return g, nil
+	return g
 }
 
 // Run holds the thread an listens on it's ping channel continuously, drawing a new graph every time a new
@@ -71,29 +79,27 @@ func NewGraphWithData(
 //
 // Since this runs in a concurrent sense any method is thread safe but therefore may also block if another
 // thread is already holding the lock.
-func (g *Graph) Run(ctx context.Context, stop context.CancelCauseFunc, fps int) error {
+func (g *Graph) Run(ctx context.Context, stop context.CancelCauseFunc, fps int, parent ...terminal.Listener) error {
 	timeBetweenFrames := getTimeBetweenFrames(fps, g.pingsPerMinute)
 	frameRate := time.NewTicker(timeBetweenFrames)
-	cleanup, err := g.Term.StartRaw(ctx, stop) // TODO add UI listeners, zooming, changing ping speed - etc
+	cleanup, err := g.Term.StartRaw(ctx, stop, parent...) // TODO add UI listeners, zooming, changing ping speed - etc
 	defer cleanup()
 	if err != nil {
 		return err
 	}
 	for {
-		if err = g.Term.UpdateCurrentTerminalSize(); err != nil {
-			return err
-		}
-		toWrite := g.computeFrame(timeBetweenFrames, true)
-		// Currently no strong opinions on dropped frames this is fine
-		<-frameRate.C
-		err = toWrite(g.Term)
-		if err != nil {
-			return err
-		}
 		select {
 		case <-ctx.Done():
 			return context.Cause(ctx)
-		default:
+		case <-frameRate.C:
+			if err = g.Term.UpdateCurrentTerminalSize(); err != nil {
+				return err
+			}
+			toWrite := g.computeFrame(timeBetweenFrames, true)
+			err = toWrite(g.Term)
+			if err != nil {
+				return err
+			}
 		}
 	}
 }

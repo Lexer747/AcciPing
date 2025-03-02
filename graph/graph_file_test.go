@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Lexer747/AcciPing/draw"
 	"github.com/Lexer747/AcciPing/graph"
 	"github.com/Lexer747/AcciPing/graph/data"
 	"github.com/Lexer747/AcciPing/graph/terminal"
@@ -165,8 +166,7 @@ func produceFrame(t *testing.T, size terminal.Size, data *data.Data) []string {
 	assert.NilError(t, err)
 	pingChannel := make(chan ping.PingResults)
 	close(pingChannel)
-	g, err := graph.NewGraphWithData(ctx, pingChannel, term, 0, data)
-	assert.NilError(t, err)
+	g := graph.NewGraphWithData(ctx, pingChannel, term, 0, data, draw.NewPaintBuffer())
 	defer func() { stdin.WriteCtrlC(t) }()
 	output := makeBuffer(size)
 	return playAnsiOntoStringBuffer(g.ComputeFrame(), output, size)

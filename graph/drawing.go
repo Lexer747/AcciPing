@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Lexer747/AcciPing/drawbuffer"
+	"github.com/Lexer747/AcciPing/draw"
 	"github.com/Lexer747/AcciPing/graph/data"
 	"github.com/Lexer747/AcciPing/graph/graphdata"
 	"github.com/Lexer747/AcciPing/graph/terminal"
@@ -62,26 +62,34 @@ func (g *Graph) computeFrame(timeBetweenFrames time.Duration, drawSpinner bool) 
 		}
 	}
 
-	g.drawingBuffer.Reset()
+	g.drawingBuffer.Reset(
+		draw.BarIndex,
+		draw.DataIndex,
+		draw.GradientIndex,
+		draw.KeyIndex,
+		draw.SpinnerIndex,
+		draw.XAxisIndex,
+		draw.YAxisIndex,
+	)
 
 	header := g.data.LockFreeHeader()
 	x := computeXAxis(
-		g.drawingBuffer.Get(xAxisIndex),
-		g.drawingBuffer.Get(barIndex),
+		g.drawingBuffer.Get(draw.XAxisIndex),
+		g.drawingBuffer.Get(draw.BarIndex),
 		s,
 		header.TimeSpan,
 		g.data.LockFreeSpanInfos(),
 	)
-	y := computeYAxis(g.drawingBuffer.Get(yAxisIndex), s, header.Stats, g.data.LockFreeURL())
+	y := computeYAxis(g.drawingBuffer.Get(draw.YAxisIndex), s, header.Stats, g.data.LockFreeURL())
 	computeFrame(
-		g.drawingBuffer.Get(gradientIndex),
-		g.drawingBuffer.Get(dataIndex),
-		g.drawingBuffer.Get(keyIndex),
+		g.drawingBuffer.Get(draw.GradientIndex),
+		g.drawingBuffer.Get(draw.DataIndex),
+		g.drawingBuffer.Get(draw.KeyIndex),
 		g.data.LockFreeIter(),
 		g.data.LockFreeRuns(),
 		x, y, s,
 	)
-	g.drawingBuffer.Get(spinnerIndex).WriteString(spinnerValue)
+	g.drawingBuffer.Get(draw.SpinnerIndex).WriteString(spinnerValue)
 	finished := paint(g.drawingBuffer)
 	// Everything we need is now cached we can unlock a bit early while we tidy up for the next frame
 	g.data.Unlock()
@@ -562,7 +570,7 @@ func (x *xAxisIter) Get(p ping.PingDataPoint) *XAxisSpanInfo {
 
 // paint knows how to composite the parts of a frame and the spinner, returning a lambda which will draw the
 // computed frame to the given writer.
-func paint(toDraw *drawbuffer.Collection) func(toWriteTo io.Writer) error {
+func paint(toDraw *draw.Buffer) func(toWriteTo io.Writer) error {
 	return func(toWriteTo io.Writer) error {
 		// First clear the screen from the last frame
 		err := utils.Err(toWriteTo.Write([]byte(ansi.Clear)))
@@ -570,7 +578,7 @@ func paint(toDraw *drawbuffer.Collection) func(toWriteTo io.Writer) error {
 			return err
 		}
 		// Now in paint order, simply forward the bytes onto the writer
-		for _, i := range paintOrder {
+		for _, i := range draw.PaintOrder {
 			err = utils.Err(toWriteTo.Write(toDraw.Get(i).Bytes()))
 			if err != nil {
 				return err
