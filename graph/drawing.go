@@ -316,8 +316,7 @@ func shouldGradient(runs *data.Runs) bool {
 func computeYAxis(toWriteTo *bytes.Buffer, size terminal.Size, stats *data.Stats, url string) yAxis {
 	toWriteTo.Grow(size.Height)
 
-	finalTitle := makeTitle(size, stats, url)
-	fmt.Fprint(toWriteTo, finalTitle)
+	makeTitle(toWriteTo, size, stats, url)
 
 	gapSize := 2
 	if size.Height > 20 {
@@ -348,8 +347,7 @@ func computeYAxis(toWriteTo *bytes.Buffer, size terminal.Size, stats *data.Stats
 	}
 }
 
-func makeTitle(size terminal.Size, stats *data.Stats, url string) string {
-	// TODO string builder, or larger buffer impl
+func makeTitle(toWriteTo *bytes.Buffer, size terminal.Size, stats *data.Stats, url string) {
 	const yAxisTitle = "Ping "
 	sizeStr := size.String()
 	titleBegin := ansi.Cyan(url)
@@ -361,12 +359,12 @@ func makeTitle(size terminal.Size, stats *data.Stats, url string) string {
 	}
 	title := titleBegin + statsStr + titleEnd
 	titleIndent := (size.Width / 2) - (len(title) / 2)
-
-	finalTitle := ansi.Home + ansi.Magenta(yAxisTitle) + ansi.CursorForward(titleIndent) + title
+	toWriteTo.WriteString(
+		ansi.Home + ansi.Magenta(yAxisTitle) + ansi.CursorForward(titleIndent) + title,
+	)
 	if drawingDebug {
-		finalTitle += ansi.CursorPosition(1, size.Width-1) + ansi.DarkRed(typography.LightBlock)
+		toWriteTo.WriteString(ansi.CursorPosition(1, size.Width-1) + ansi.DarkRed(typography.LightBlock))
 	}
-	return finalTitle
 }
 
 type yAxis struct {
