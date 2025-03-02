@@ -9,20 +9,23 @@ package graph
 import (
 	"context"
 	"io"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/Lexer747/AcciPing/drawbuffer"
+	"github.com/Lexer747/AcciPing/draw"
 	"github.com/Lexer747/AcciPing/graph/data"
 	"github.com/Lexer747/AcciPing/graph/graphdata"
 	"github.com/Lexer747/AcciPing/graph/terminal"
+	"github.com/Lexer747/AcciPing/gui"
 	"github.com/Lexer747/AcciPing/ping"
 	"github.com/Lexer747/AcciPing/utils/check"
 )
 
 type Graph struct {
 	Term *terminal.Terminal
+	guiI gui.GUI
 
 	sinkAlive   bool
 	dataChannel chan ping.PingResults
@@ -34,20 +37,30 @@ type Graph struct {
 	frameMutex *sync.Mutex
 	lastFrame  frame
 
-	drawingBuffer *drawbuffer.Collection
+	drawingBuffer *draw.Buffer
 }
 
-func NewGraph(ctx context.Context, input chan ping.PingResults, t *terminal.Terminal, pingsPerMinute float64, URL string) (*Graph, error) {
-	return NewGraphWithData(ctx, input, t, pingsPerMinute, data.NewData(URL))
+func NewGraph(
+	ctx context.Context,
+	input chan ping.PingResults,
+	t *terminal.Terminal,
+	gui gui.GUI,
+	pingsPerMinute float64,
+	URL string,
+	drawingBuffer *draw.Buffer,
+) *Graph {
+	return NewGraphWithData(ctx, input, t, gui, pingsPerMinute, data.NewData(URL), drawingBuffer)
 }
 
 func NewGraphWithData(
 	ctx context.Context,
 	input chan ping.PingResults,
 	t *terminal.Terminal,
+	gui gui.GUI,
 	pingsPerMinute float64,
 	data *data.Data,
-) (*Graph, error) {
+	drawingBuffer *draw.Buffer,
+) *Graph {
 	g := &Graph{
 		Term:           t,
 		sinkAlive:      true,
@@ -56,13 +69,14 @@ func NewGraphWithData(
 		data:           graphdata.NewGraphData(data),
 		frameMutex:     &sync.Mutex{},
 		lastFrame:      frame{},
-		drawingBuffer:  drawbuffer.NewCollection(int(indexCount.Load())),
+		drawingBuffer:  drawingBuffer,
+		guiI:           gui,
 	}
 	if ctx != nil {
 		// A nil context is valid: It means that no new data is expected and the input channel isn't active
 		go g.sink(ctx)
 	}
-	return g, nil
+	return g
 }
 
 // Run holds the thread an listens on it's ping channel continuously, drawing a new graph every time a new
@@ -71,36 +85,56 @@ func NewGraphWithData(
 //
 // Since this runs in a concurrent sense any method is thread safe but therefore may also block if another
 // thread is already holding the lock.
-func (g *Graph) Run(ctx context.Context, stop context.CancelCauseFunc, fps int) error {
+//
+// Returns
+//   - The graph main function
+//   - the defer function which will restore the terminal to the correct state
+//   - a channel containing all the terminal size updates
+//   - an error if creating any of the above failed.
+func (g *Graph) Run(
+	ctx context.Context,
+	stop context.CancelCauseFunc,
+	fps int,
+	listeners []terminal.ConditionalListener,
+	fallbacks []terminal.Listener,
+) (func() error, func(), chan terminal.Size, error) {
 	timeBetweenFrames := getTimeBetweenFrames(fps, g.pingsPerMinute)
 	frameRate := time.NewTicker(timeBetweenFrames)
-	cleanup, err := g.Term.StartRaw(ctx, stop) // TODO add UI listeners, zooming, changing ping speed - etc
-	defer cleanup()
+	cleanup, err := g.Term.StartRaw(ctx, stop, listeners, fallbacks)
 	if err != nil {
-		return err
+		return nil, cleanup, nil, err
 	}
-	for {
-		if err = g.Term.UpdateCurrentTerminalSize(); err != nil {
-			return err
-		}
-		toWrite := g.computeFrame(timeBetweenFrames, true)
-		// Currently no strong opinions on dropped frames this is fine
-		<-frameRate.C
-		err = toWrite(g.Term)
-		if err != nil {
-			return err
-		}
-		select {
-		case <-ctx.Done():
-			return context.Cause(ctx)
-		default:
+	terminalUpdates := make(chan terminal.Size)
+	graph := func() error {
+		size := g.Term.Size()
+		defer close(terminalUpdates)
+		for {
+			select {
+			case <-ctx.Done():
+				return context.Cause(ctx)
+			case <-frameRate.C:
+				if err = g.Term.UpdateCurrentTerminalSize(); err != nil {
+					return err
+				}
+				if size != g.Term.Size() {
+					slog.Debug("sending size update", "size", size)
+					terminalUpdates <- size
+					size = g.Term.Size()
+				}
+				toWrite := g.computeFrame(timeBetweenFrames, true)
+				err = toWrite(g.Term)
+				if err != nil {
+					return err
+				}
+			}
 		}
 	}
+	return graph, cleanup, terminalUpdates, err
 }
 
 // OneFrame doesn't run the graph but runs all the code to create and print a single frame to the terminal.
 func (g *Graph) OneFrame() error {
-	if err := g.Term.ClearScreen(true); err != nil {
+	if err := g.Term.ClearScreen(terminal.MoveHome); err != nil {
 		return err
 	}
 	if err := g.Term.UpdateCurrentTerminalSize(); err != nil {
@@ -115,7 +149,7 @@ func (g *Graph) LastFrame() string {
 	g.frameMutex.Lock()
 	defer g.frameMutex.Unlock()
 	var b strings.Builder
-	err := g.lastFrame.framePainter(&b)
+	err := g.lastFrame.framePainterNoGui(&b)
 	check.NoErr(err, "While painting frame to string buffer")
 	return b.String()
 }
@@ -124,7 +158,7 @@ func (g *Graph) LastFrame() string {
 func (g *Graph) Summarise() string {
 	g.frameMutex.Lock()
 	defer g.frameMutex.Unlock()
-	return g.data.String()
+	return strings.ReplaceAll(g.data.String(), "| ", "\n\t")
 }
 
 func (g *Graph) sink(ctx context.Context) {
@@ -134,6 +168,8 @@ func (g *Graph) sink(ctx context.Context) {
 			g.sinkAlive = false
 			return
 		case p, ok := <-g.dataChannel:
+			// TODO configure logging channels
+			// slog.Debug("graph sink data received", "packet", p)
 			if !ok {
 				g.sinkAlive = false
 				return
@@ -144,11 +180,12 @@ func (g *Graph) sink(ctx context.Context) {
 }
 
 type frame struct {
-	PacketCount  int64
-	yAxis        yAxis
-	xAxis        xAxis
-	framePainter func(io.Writer) error
-	spinnerIndex int
+	PacketCount       int64
+	yAxis             yAxis
+	xAxis             xAxis
+	framePainter      func(io.Writer) error
+	framePainterNoGui func(io.Writer) error
+	spinnerIndex      int
 }
 
 func (f frame) Match(s terminal.Size) bool {

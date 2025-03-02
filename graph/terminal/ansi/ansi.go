@@ -1,6 +1,6 @@
 // Use of this source code is governed by a GPL-2 license that can be found in the LICENSE file.
 //
-// Copyright 2024 Lexer747
+// Copyright 2024-2025 Lexer747
 //
 // SPDX-License-Identifier: GPL-2.0-only
 
@@ -63,8 +63,10 @@ const (
 
 // Compacted when defaults are passed, some chars may be elided:
 //
-// > The values are 1-based, and default to '1' (top left corner) if omitted. A sequence such as 'CSI ;5H' is a
-// > synonym for 'CSI 1;5H' as well as 'CSI 17;H' is the same as 'CSI 17H' and 'CSI 17;1H'. [wikipedia]
+// > The values are 1-based, and default to '1' (top left corner) if omitted. A sequence such as 'CSI ;5H' is
+// > a synonym for 'CSI 1;5H' as well as 'CSI 17;H' is the same as 'CSI 17H' and 'CSI 17;1H'. [wikipedia]
+//
+// In the graph context [row] is the `Y` coordinate and the [column] is the `X` coordinate.
 //
 // [wikipedia]: https://en.wikipedia.org/wiki/ANSI_escape_code
 func CursorPosition(row, column int) string {

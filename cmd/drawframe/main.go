@@ -11,14 +11,17 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"runtime/pprof"
 	"time"
 
+	"github.com/Lexer747/AcciPing/draw"
 	"github.com/Lexer747/AcciPing/files"
 	"github.com/Lexer747/AcciPing/graph"
 	"github.com/Lexer747/AcciPing/graph/data"
 	"github.com/Lexer747/AcciPing/graph/terminal"
+	"github.com/Lexer747/AcciPing/gui"
 )
 
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
@@ -44,30 +47,56 @@ func main() {
 		fmt.Fprint(os.Stderr, "No files found, exiting. Use -h/--help to print usage instructions.\n")
 		os.Exit(0)
 	}
-	if len(toPrint) > 1 {
-		fmt.Fprint(os.Stderr, "More than one file found, exiting. Only one file at a time supported.\n"+
-			"Use -h/--help to print usage instructions.\n")
+
+	term, err := makeTerminal()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to open terminal to draw: %s", err.Error())
 		os.Exit(1)
 	}
 
-	filepath := toPrint[0]
+	for _, path := range toPrint {
+		run(term, path)
+	}
+	fmt.Println()
+	fmt.Println()
+	fmt.Println()
+}
 
-	d, f, err := files.LoadFile(filepath)
+func run(term *terminal.Terminal, path string) {
+	fs, err := os.Stat(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Couldn't stat path %q, failed with: %s", path, err.Error())
+		os.Exit(1)
+	}
+	if fs.IsDir() {
+		err := filepath.WalkDir(path, func(p string, d os.DirEntry, err error) error {
+			if filepath.Ext(p) != ".pings" {
+				return nil
+			}
+			do(p, term)
+			return nil
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Couldn't walk path %q, failed with: %s", path, err.Error())
+			os.Exit(1)
+		}
+	} else {
+		do(path, term)
+	}
+}
+
+func do(path string, term *terminal.Terminal) {
+	d, f, err := files.LoadFile(path)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Couldn't open and read file, failed with: %s", err.Error())
 		os.Exit(1)
 	}
 	f.Close()
-	var term *terminal.Terminal
-	if termSize != nil && *termSize != "" {
-		term, err = terminal.NewParsedFixedSizeTerminal(*termSize)
-	} else {
-		term, err = terminal.NewTerminal()
-	}
 	if err != nil {
 		panic(err.Error())
 	}
 
+	// TODO dont profile like this when on a folder.
 	if profiling {
 		timer := time.NewTimer(time.Second * 60)
 		running := true
@@ -82,18 +111,20 @@ func main() {
 	} else {
 		printGraph(term, d)
 	}
-	fmt.Println()
-	fmt.Println()
-	fmt.Println()
+}
+
+func makeTerminal() (*terminal.Terminal, error) {
+	if termSize != nil && *termSize != "" {
+		return terminal.NewParsedFixedSizeTerminal(*termSize)
+	} else {
+		return terminal.NewTerminal()
+	}
 }
 
 func printGraph(term *terminal.Terminal, d *data.Data) {
-	g, err := graph.NewGraphWithData(context.Background(), nil, term, 0, d)
-	if err != nil {
-		panic(err.Error())
-	}
+	g := graph.NewGraphWithData(context.Background(), nil, term, gui.NoGUI(), 0, d, draw.NewPaintBuffer())
 	fmt.Println()
-	err = g.OneFrame()
+	err := g.OneFrame()
 	if err != nil {
 		panic(err.Error())
 	}

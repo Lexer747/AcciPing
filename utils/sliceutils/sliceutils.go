@@ -39,9 +39,6 @@ func AllOf[S ~[]T, T any](slice S, f func(T) bool) bool {
 	return true
 }
 
-// this is not an interface return but generic return
-//
-//nolint:ireturn
 func Fold[IN, OUT any, S ~[]IN](slice S, base OUT, f func(IN, OUT) OUT) OUT {
 	ret := base
 	for _, in := range slice {
@@ -50,9 +47,6 @@ func Fold[IN, OUT any, S ~[]IN](slice S, base OUT, f func(IN, OUT) OUT) OUT {
 	return ret
 }
 
-// this is not an interface return but generic return
-//
-//nolint:ireturn
 func Shuffle[S ~[]T, T any](slice S) S {
 	ret := slices.Clone(slice)
 	shuf := func(i, j int) {
@@ -66,4 +60,20 @@ func Shuffle[S ~[]T, T any](slice S) S {
 
 func Join[S ~[]T, T fmt.Stringer](slice S, sep string) string {
 	return strings.Join(Map(slice, T.String), sep)
+}
+
+func Remove[S ~[]T, T comparable](slice S, elements ...T) S {
+	toDelete := map[T]struct{}{}
+	for _, t := range elements {
+		toDelete[t] = struct{}{}
+	}
+	ret := S{}
+	for _, s := range slice {
+		if _, found := toDelete[s]; found {
+			continue
+		} else {
+			ret = append(ret, s)
+		}
+	}
+	return ret
 }

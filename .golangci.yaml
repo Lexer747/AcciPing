@@ -58,6 +58,7 @@ linters:
   enable-all: true
   disable:
     - cyclop
+    - durationcheck
     - errname
     - execinquery
     - exhaustruct
@@ -71,6 +72,7 @@ linters:
     - godox
     - gofumpt
     - gomnd
+    - ireturn
     - mnd
     - nlreturn
     - nonamedreturns

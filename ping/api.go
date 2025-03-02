@@ -31,12 +31,12 @@ type Ping struct {
 	addresses     *queryCache
 }
 
-type DNSCacheTrust string
+type DNSCacheTrust int
 
 const (
-	LowTrust     = "Low Trust"
-	NominalTrust = "Nominal Trust"
-	HighTrust    = "High Trust"
+	LowTrust     DNSCacheTrust = 1
+	NominalTrust DNSCacheTrust = 2
+	HighTrust    DNSCacheTrust = 3
 )
 
 func (p *Ping) LastIP() string {
@@ -470,6 +470,18 @@ func (dct DNSCacheTrust) asMaxDropped() uint {
 		return 1
 	case HighTrust:
 		return 5
+	}
+	panic("exhaustive:enforce")
+}
+
+func (dct DNSCacheTrust) String() string {
+	switch dct {
+	case LowTrust:
+		return "Low Trust"
+	case NominalTrust:
+		return "Nominal Trust"
+	case HighTrust:
+		return "High Trust"
 	}
 	panic("exhaustive:enforce")
 }
