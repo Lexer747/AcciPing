@@ -24,7 +24,7 @@ func TestTerminalWrite(t *testing.T) {
 	assert.NilError(t, err)
 	ctx, cancelFunc := context.WithCancelCause(context.Background())
 	defer cancelFunc(nil)
-	_, err = term.StartRaw(ctx, cancelFunc)
+	_, err = term.StartRaw(ctx, cancelFunc, nil, nil)
 	assert.NilError(t, err)
 	const hello = "Hello world"
 	term.Print(hello)
@@ -39,7 +39,7 @@ func TestTerminalReading(t *testing.T) {
 	ctx, cancelFunc := context.WithTimeoutCause(context.Background(), time.Second, timeout)
 	cancelWithCause := func(err error) { cancelFunc() }
 	defer cancelWithCause(nil)
-	_, err = term.StartRaw(ctx, cancelWithCause)
+	_, err = term.StartRaw(ctx, cancelWithCause, nil, nil)
 	assert.NilError(t, err)
 	_, _ = stdin.Write([]byte("\x03")) // ctrl-c will cause the terminal to cancel
 
@@ -56,19 +56,21 @@ func TestTerminalListener(t *testing.T) {
 	ctx, cancelFunc := context.WithCancelCause(context.Background())
 	defer cancelFunc(nil)
 	lastRune := ' '
-	testListener := terminal.Listener{
+	testListener := terminal.ConditionalListener{
 		Applicable: func(r rune) bool {
 			lastRune = r
 			return true
 		},
-		Action: func(r rune) error {
-			assert.Equal(t, lastRune, r)
-			err := term.Print(string(r))
-			assert.NilError(t, err)
-			return nil
+		Listener: terminal.Listener{
+			Action: func(r rune) error {
+				assert.Equal(t, lastRune, r)
+				err := term.Print(string(r))
+				assert.NilError(t, err)
+				return nil
+			},
 		},
 	}
-	_, err = term.StartRaw(ctx, cancelFunc, testListener)
+	_, err = term.StartRaw(ctx, cancelFunc, []terminal.ConditionalListener{testListener}, nil)
 	assert.NilError(t, err)
 	_ = stdout.ReadString(t)
 	_, _ = stdin.Write([]byte("a"))
@@ -86,4 +88,51 @@ type testErr struct{}
 
 func (testErr) Error() string {
 	return "testErr"
+}
+
+func TestTerminalFallbackListener(t *testing.T) {
+	t.Parallel()
+	stdin, _, term, _, err := th.NewTestTerminal()
+	assert.NilError(t, err)
+	ctx, cancelFunc := context.WithCancelCause(context.Background())
+	defer cancelFunc(nil)
+	lastRune := ' '
+	m1 := make(chan struct{})
+	m2 := make(chan struct{})
+	defer close(m1)
+	defer close(m2)
+	testListener := terminal.ConditionalListener{
+		Applicable: func(r rune) bool {
+			return r == 'a'
+		},
+		Listener: terminal.Listener{
+			Action: func(r rune) error {
+				<-m1
+				m2 <- struct{}{}
+				return nil
+			},
+		},
+	}
+	fallback := terminal.Listener{
+		Action: func(r rune) error {
+			<-m1
+			lastRune = r
+			m2 <- struct{}{}
+			return nil
+		},
+	}
+	_, err = term.StartRaw(ctx, cancelFunc, []terminal.ConditionalListener{testListener}, []terminal.Listener{fallback})
+	assert.NilError(t, err)
+	_, _ = stdin.Write([]byte("a"))
+	m1 <- struct{}{}
+	<-m2
+	assert.Equal(t, ' ', lastRune)
+	_, _ = stdin.Write([]byte("b"))
+	m1 <- struct{}{}
+	<-m2
+	assert.Equal(t, 'b', lastRune)
+	_, _ = stdin.Write([]byte("c"))
+	m1 <- struct{}{}
+	<-m2
+	assert.Equal(t, 'c', lastRune)
 }

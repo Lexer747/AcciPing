@@ -15,6 +15,7 @@ import (
 	"runtime/pprof"
 	"time"
 
+	"github.com/Lexer747/AcciPing/draw"
 	"github.com/Lexer747/AcciPing/files"
 	"github.com/Lexer747/AcciPing/graph"
 	"github.com/Lexer747/AcciPing/graph/data"
@@ -88,12 +89,9 @@ func main() {
 }
 
 func printGraph(term *terminal.Terminal, d *data.Data) {
-	g, err := graph.NewGraphWithData(context.Background(), nil, term, 0, d)
-	if err != nil {
-		panic(err.Error())
-	}
+	g := graph.NewGraphWithData(context.Background(), nil, term, 0, d, draw.NewPaintBuffer())
 	fmt.Println()
-	err = g.OneFrame()
+	err := g.OneFrame()
 	if err != nil {
 		panic(err.Error())
 	}
