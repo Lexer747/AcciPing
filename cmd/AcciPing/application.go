@@ -8,10 +8,12 @@ package acciping
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"runtime"
 	"runtime/pprof"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,9 +26,11 @@ import (
 	"github.com/Lexer747/AcciPing/ping"
 	"github.com/Lexer747/AcciPing/utils/errors"
 	"github.com/Lexer747/AcciPing/utils/siphon"
+	"golang.org/x/exp/maps"
 )
 
 type Application struct {
+	GUI
 	g    *graph.Graph
 	term *terminal.Terminal
 
@@ -34,8 +38,14 @@ type Application struct {
 	config   Config
 	// this doesn't need a mutex because we ensure that no two threads have access to the same byte index (I
 	// think this is fine when the slice doesn't grow).
-	drawBuffer   *draw.Buffer
+	drawBuffer *draw.Buffer
+
 	errorChannel chan error
+}
+
+type GUI struct {
+	listeningChars map[rune]terminal.ConditionalListener
+	fallbacks      []terminal.Listener
 }
 
 func (app *Application) Run(
@@ -56,23 +66,29 @@ func (app *Application) Run(
 	app.drawBuffer = draw.NewPaintBuffer()
 
 	go app.toastNotifications(ctx)
+	helpCh := make(chan rune)
+	app.addFallbackListener(helpAction(helpCh))
+	go app.help(ctx, helpCh)
 
 	// The graph will take ownership of the data channel and data pointer.
 	app.g = graph.NewGraphWithData(ctx, graphChannel, app.term, app.config.PingsPerMinute, existingData, app.drawBuffer)
 	_ = app.g.Term.ClearScreen(terminal.UpdateAndMove)
 
-	listeners := []terminal.Listener{}
 	if app.config.TestErrorListener {
-		listeners = append(listeners, app.makeErrorGenerator())
+		app.makeErrorGenerator()
 	}
 
+	defer close(app.errorChannel)
+	defer close(helpCh)
 	// Very high FPS is good for responsiveness in the UI (since it's locked) and re-drawing on a re-size.
-	return app.g.Run(ctx, cancelFunc, 120, listeners...)
+	// TODO add UI listeners, zooming, changing ping speed - etc
+	return app.g.Run(ctx, cancelFunc, 120, app.listeners(), app.fallbacks)
 }
 
 func (app *Application) Init(ctx context.Context, c Config) (channel chan ping.PingResults, existingData *data.Data) {
 	app.config = c
 	app.errorChannel = make(chan error)
+	app.GUI = newGUI()
 	closeProfile := startCPUProfiling(c.Cpuprofile)
 	defer closeProfile()
 	defer concludeMemProfile(c.Memprofile)
@@ -96,14 +112,6 @@ func (app *Application) Finish() {
 	afterGraph := strings.Repeat("\n", app.term.Size().Height)
 	app.term.Print(afterGraph + "# Summary\nPing Successfully recorded in file '" + app.config.FilePath + "'\n\t" +
 		app.g.Summarise() + "\n")
-}
-
-// TODO incremental read/writes, get the URL ASAP then start the channel, then incremental continuation.
-func loadFile(file, url string) (*data.Data, *os.File) {
-	// TODO this currently panics if the url's don't match we should do better
-	d, f, err := files.LoadOrCreateFile(file, url)
-	exitOnError(err)
-	return d, f
 }
 
 func (app *Application) writeToFile(ctx context.Context, ourData *data.Data, input chan ping.PingResults) {
@@ -135,20 +143,37 @@ func (app *Application) writeToFile(ctx context.Context, ourData *data.Data, inp
 	}
 }
 
-func (app *Application) makeErrorGenerator() terminal.Listener {
-	return terminal.Listener{
-		Name: "Error Generator",
-		Applicable: func(r rune) bool {
-			return r == 'e'
+func (app *Application) makeErrorGenerator() {
+	app.addListener('e', func(r rune) error {
+		go func() { app.errorChannel <- errors.New("Test Error") }()
+		return nil
+	})
+}
+
+func (app *Application) addListener(r rune, Action func(rune) error) {
+	if _, found := app.GUI.listeningChars[r]; found {
+		panic(fmt.Sprintf("Adding more than one listener for '%v'", r))
+	}
+	app.GUI.listeningChars[r] = terminal.ConditionalListener{
+		Listener: terminal.Listener{
+			Action: Action,
+			Name:   "GUI Listener " + strconv.QuoteRune(r),
 		},
-		Action: func(r rune) error {
-			if r != 'e' {
-				return nil
-			}
-			app.errorChannel <- errors.New("Test Error")
-			return nil
+		Applicable: func(in rune) bool {
+			return in == r
 		},
 	}
+}
+
+func (app *Application) addFallbackListener(Action func(rune) error) {
+	app.GUI.fallbacks = append(app.GUI.fallbacks, terminal.Listener{
+		Action: Action,
+		Name:   "GUI Fallback Listener",
+	})
+}
+
+func (app *Application) listeners() []terminal.ConditionalListener {
+	return maps.Values(app.GUI.listeningChars)
 }
 
 func duplicateData(f *os.File) (*data.Data, error) {
@@ -187,4 +212,19 @@ func startCPUProfiling(cpuprofile string) func() {
 		}
 	}
 	return func() {}
+}
+
+// TODO incremental read/writes, get the URL ASAP then start the channel, then incremental continuation.
+func loadFile(file, url string) (*data.Data, *os.File) {
+	// TODO this currently panics if the url's don't match we should do better
+	d, f, err := files.LoadOrCreateFile(file, url)
+	exitOnError(err)
+	return d, f
+}
+
+func newGUI() GUI {
+	return GUI{
+		listeningChars: map[rune]terminal.ConditionalListener{},
+		fallbacks:      []terminal.Listener{},
+	}
 }

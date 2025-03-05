@@ -8,16 +8,19 @@ package terminal
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Lexer747/AcciPing/graph/terminal/ansi"
 	"github.com/Lexer747/AcciPing/utils"
 	"github.com/Lexer747/AcciPing/utils/bytes"
+	"github.com/Lexer747/AcciPing/utils/check"
 	"github.com/Lexer747/AcciPing/utils/errors"
 
 	"golang.org/x/term"
@@ -47,7 +50,8 @@ func Parse(s string) (Size, bool) {
 
 type Terminal struct {
 	size      Size
-	listeners []Listener
+	listeners []ConditionalListener
+	fallbacks []Listener
 
 	stdin                *stdin
 	stdout               *stdout
@@ -72,7 +76,8 @@ func NewTerminal() (*Terminal, error) {
 	}
 	t := &Terminal{
 		size:          size,
-		listeners:     []Listener{},
+		listeners:     []ConditionalListener{},
+		fallbacks:     []Listener{},
 		stdin:         &stdin{realFile: os.Stdin},
 		stdout:        &stdout{realFile: os.Stdout},
 		listenMutex:   &sync.Mutex{},
@@ -84,7 +89,8 @@ func NewTerminal() (*Terminal, error) {
 func NewFixedSizeTerminal(s Size) (*Terminal, error) {
 	t := &Terminal{
 		size:          s,
-		listeners:     []Listener{},
+		listeners:     []ConditionalListener{},
+		fallbacks:     []Listener{},
 		stdin:         &stdin{realFile: os.Stdin},
 		stdout:        &stdout{realFile: os.Stdout},
 		listenMutex:   &sync.Mutex{},
@@ -110,14 +116,18 @@ func (t *Terminal) Size() Size {
 type Listener struct {
 	// Name is used for if a listener errors for easier identification, it may be omitted.
 	Name string
-	// Applicable is the applicability of this listen, i.e. for which input runes do you want this action to
-	// be fired
-	Applicable func(rune) bool
 	// Action the callback which will be invoked when a user inputs the applicable rune, the rune passed is
 	// the same rune passed to applicable. Note the terminal size will have been updated before this called,
 	// but this is actually racey if the user is typing while changing size. If an error occurs in this action
 	// the terminal will panic and exit.
 	Action func(rune) error
+}
+
+type ConditionalListener struct {
+	Listener
+	// Applicable is the applicability of this listen, i.e. for which input runes do you want this action to
+	// be fired
+	Applicable func(rune) bool
 }
 
 type userControlCErr struct{}
@@ -145,7 +155,12 @@ func (userControlCErr) Error() string {
 //
 // The `ctrl-c` listener will also provide the [terminal.UserControlCErr] cause when this happens for use with
 // [error.Is].
-func (t *Terminal) StartRaw(ctx context.Context, stop context.CancelCauseFunc, listeners ...Listener) (func(), error) {
+func (t *Terminal) StartRaw(
+	ctx context.Context,
+	stop context.CancelCauseFunc,
+	listeners []ConditionalListener,
+	fallbacks []Listener,
+) (func(), error) {
 	restore := func() {}
 	if !t.isTestTerminal {
 		inFd := int(t.stdin.realFile.Fd())
@@ -163,19 +178,24 @@ func (t *Terminal) StartRaw(ctx context.Context, stop context.CancelCauseFunc, l
 	}
 	t.cleanup = func() {
 		if err := recover(); err != nil {
-			// If the program panics we must return back the terminal to a normal state so that other go
+			// If the terminal panics we must return back the terminal to a normal state so that other go
 			// cleanup can take place. E.g. logging to stdout, etc.
 			_ = ctrlCAction('\x00')
 			panic(err)
 		}
 	}
 
-	controlCListener := Listener{
-		Name:       "ctrl+c",
+	controlCListener := ConditionalListener{
 		Applicable: func(r rune) bool { return r == '\x03' },
-		Action:     ctrlCAction,
+		Listener: Listener{
+			Name:   "ctrl+c",
+			Action: ctrlCAction,
+		},
 	}
-	t.listeners = slices.Concat(t.listeners, []Listener{controlCListener}, listeners)
+	t.listeners = slices.Concat(t.listeners, []ConditionalListener{controlCListener}, listeners)
+	if fallbacks != nil {
+		t.fallbacks = fallbacks
+	}
 	t.Print(ansi.HideCursor)
 	go t.beingListening(ctx)
 	return t.cleanup, nil
@@ -218,8 +238,8 @@ type listenResult struct {
 }
 
 func (t *Terminal) beingListening(ctx context.Context) {
-	buffer := make([]byte, 10)
-	listenChannel := make(chan listenResult, 10)
+	buffer := make([]byte, 20)
+	listenChannel := make(chan listenResult, 20)
 	processingChannel := make(chan struct{})
 	// Create a go-routine which continuously reads from stdin
 	go func() {
@@ -246,21 +266,44 @@ func (t *Terminal) beingListening(ctx context.Context) {
 			if received.n <= 0 {
 				return // cancelled
 			}
-			r := rune(string(buffer[:received.n])[0])
-			// TODO pre-sort and order the listeners, then create a lookup instead of a linear search
-			// TODO document multiple valid listeners - especially ctrl-C interactions
-			for _, l := range t.listeners {
-				if !l.Applicable(r) {
-					continue
-				}
-				err := l.Action(r)
-				if err != nil {
-					panic(errors.Wrapf(err, "unexpected failure Action %q in terminal", l.Name))
-				}
+			heard := string(buffer[:received.n])
+			for _, r := range heard {
+				// TODO document multiple valid listeners - especially ctrl-C interactions
+				t.processListenedRune(r)
 			}
 			// if we don't have the processing signal this clear would be racey against stdin.
 			bytes.Clear(buffer, received.n)
 			processingChannel <- struct{}{}
+		}
+	}
+}
+
+// processListenedRune should only be called by the listener thread
+func (t *Terminal) processListenedRune(r rune) {
+	runFallback := true
+	f, err := os.OpenFile("/home/lexer747/repos/AcciPing/tmp", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o777)
+	check.NoErr(err, "tmp")
+	defer f.Close()
+	fmt.Fprintf(f, "Input %+v %s\n", strconv.QuoteRune(r), time.Now().String())
+	for _, l := range t.listeners {
+		if !l.Applicable(r) {
+			continue
+		}
+		fmt.Fprintf(f, "Running %+v %s\n", l.Name, time.Now().String())
+		err := l.Action(r)
+		if err != nil {
+			panic(errors.Wrapf(err, "unexpected failure Action %q in terminal", l.Name))
+		}
+		fmt.Fprintf(f, "Completed %+v %s\n", l.Name, time.Now().String())
+		runFallback = false
+	}
+	fmt.Fprintf(f, "Fallback %s %s\n", strconv.QuoteRune(r), time.Now().String())
+	if runFallback {
+		for _, l := range t.fallbacks {
+			err := l.Action(r)
+			if err != nil {
+				panic(errors.Wrapf(err, "unexpected failure Action %q in terminal", l.Name))
+			}
 		}
 	}
 }
@@ -338,7 +381,8 @@ func NewTestTerminal(stdinReader io.Reader, stdoutWriter io.Writer, terminalSize
 	size := terminalSizeCallBack()
 	return &Terminal{
 		size:                 size,
-		listeners:            []Listener{},
+		listeners:            []ConditionalListener{},
+		fallbacks:            []Listener{},
 		stdin:                &stdin{stubFileReader: stdinReader},
 		stdout:               &stdout{stubFileWriter: stdoutWriter},
 		terminalSizeCallBack: terminalSizeCallBack,

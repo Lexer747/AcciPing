@@ -38,7 +38,7 @@ func (app *Application) toastNotifications(ctx context.Context) {
 			// A new error has been surfaced:
 			store.Lock()
 			// First generate a unique id for this error and add it to our map.
-			key := app.insertToast(store, toShow)
+			key := store.insertToast(toShow)
 			// Now refresh the window size and write the toast notification to the window
 			store.write(app.term.Size(), toastBuffer)
 			store.Unlock()
@@ -65,13 +65,13 @@ type toastStore struct {
 }
 
 // insertToast should only be called while the lock is held
-func (*Application) insertToast(store toastStore, toShow error) int {
+func (ts toastStore) insertToast(toShow error) int {
 	var key int
 	for {
 		key = rand.Int() //nolint:gosec
-		_, ok := store.toasts[key]
+		_, ok := ts.toasts[key]
 		if !ok {
-			store.toasts[key] = toast{
+			ts.toasts[key] = toast{
 				timestamp: time.Now(),
 				err:       toShow.Error(),
 			}

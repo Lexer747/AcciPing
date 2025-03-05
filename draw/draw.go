@@ -49,6 +49,7 @@ var (
 	KeyIndex      = newIndex()
 	SpinnerIndex  = newIndex()
 	ToastIndex    = newIndex()
+	HelpIndex     = newIndex()
 	XAxisIndex    = newIndex()
 	YAxisIndex    = newIndex()
 )
@@ -66,6 +67,7 @@ var PaintOrder = []Index{
 	KeyIndex,
 	// Notifications can appear above the graph as they're ephemeral
 	ToastIndex,
+	HelpIndex,
 	// if we can't see the spinner we may be worried the program is dead
 	SpinnerIndex,
 }

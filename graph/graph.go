@@ -79,11 +79,24 @@ func NewGraphWithData(
 //
 // Since this runs in a concurrent sense any method is thread safe but therefore may also block if another
 // thread is already holding the lock.
-func (g *Graph) Run(ctx context.Context, stop context.CancelCauseFunc, fps int, parent ...terminal.Listener) error {
+func (g *Graph) Run(
+	ctx context.Context,
+	stop context.CancelCauseFunc,
+	fps int,
+	listeners []terminal.ConditionalListener,
+	fallbacks []terminal.Listener,
+) error {
 	timeBetweenFrames := getTimeBetweenFrames(fps, g.pingsPerMinute)
 	frameRate := time.NewTicker(timeBetweenFrames)
-	cleanup, err := g.Term.StartRaw(ctx, stop, parent...) // TODO add UI listeners, zooming, changing ping speed - etc
-	defer cleanup()
+	cleanup, err := g.Term.StartRaw(ctx, stop, listeners, fallbacks)
+	defer func() {
+		if err := recover(); err != nil {
+			cleanup()
+			panic(err)
+		} else {
+			cleanup()
+		}
+	}()
 	if err != nil {
 		return err
 	}

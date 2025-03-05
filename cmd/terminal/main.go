@@ -9,6 +9,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/Lexer747/AcciPing/graph/terminal"
@@ -29,14 +30,11 @@ func main() {
 	// Create out example listener, we trigger on any detected input and always write a full terminal line
 	writeLineListener := terminal.Listener{
 		Name: "blankLine",
-		Applicable: func(r rune) bool {
-			return r != 'l'
-		},
-		Action: func(rune) error {
-			sizeDiv2 := (t.Size().Width / 2) - 7
-			x := fmt.Sprintf("W:%-5dH:%-5d", t.Size().Width, t.Size().Height)
+		Action: func(r rune) error {
+			sizeDiv2 := (t.Size().Width - 21) / 2
+			x := fmt.Sprintf("W:%-5dH:%-5dR:%-5s", t.Size().Width, t.Size().Height, strconv.QuoteRune(r))
 			line := strings.Repeat(".", sizeDiv2) + ansi.Yellow(x) + strings.Repeat(".", sizeDiv2)
-			if t.Size().Width%2 == 1 {
+			if t.Size().Width%2 == 0 {
 				line += "."
 			} else {
 				line += ""
@@ -45,18 +43,20 @@ func main() {
 		},
 	}
 	// clear screen example:
-	clearScreenListener := terminal.Listener{
-		Name: "clear",
+	clearScreenListener := terminal.ConditionalListener{
 		Applicable: func(r rune) bool {
 			return r == 'l'
 		},
-		Action: func(rune) error {
-			return t.ClearScreen(terminal.UpdateSize)
+		Listener: terminal.Listener{
+			Name: "clear",
+			Action: func(rune) error {
+				return t.ClearScreen(terminal.UpdateSize)
+			},
 		},
 	}
-	// Actually start the terminal program.
-	// Note that the listeners are applied in order, so if more than one is applicable then the last entry will happen last
-	cleanup, err := t.StartRaw(ctx, cancelFunc, writeLineListener, clearScreenListener)
+	// Actually start the terminal program. Note that the listeners are applied in order, so if more than one
+	// is applicable then the last entry will happen last
+	cleanup, err := t.StartRaw(ctx, cancelFunc, []terminal.ConditionalListener{clearScreenListener}, []terminal.Listener{writeLineListener})
 	defer cleanup()
 	if err != nil {
 		panic(err.Error())
