@@ -7,30 +7,39 @@
 package main
 
 import (
-	"flag"
+	"os"
 
 	acciping "github.com/Lexer747/AcciPing/cmd/AcciPing"
+	"github.com/Lexer747/AcciPing/cmd/drawframe"
+	"github.com/Lexer747/AcciPing/cmd/ping"
+	"github.com/Lexer747/AcciPing/cmd/rawdata"
+	"github.com/Lexer747/AcciPing/utils/exit"
 )
 
-var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
-var memprofile = flag.String("memprofile", "", "write memory profile to `file`")
-var logfile = flag.String("l", "", "write logs to `file`")
-
 func main() {
-	flag.Parse()
-	acciping.RunAcciPing(acciping.Config{
-		Cpuprofile:         *cpuprofile,
-		FilePath:           demoFilePath,
-		LogFile:            *logfile,
-		Memprofile:         *memprofile,
-		PingBufferingLimit: channelSize,
-		PingsPerMinute:     pingsPerMinute,
-		TestErrorListener:  true,
-		URL:                demoURL,
-	})
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "drawframe":
+			df := drawframe.GetFlags()
+			exit.OnError(df.Parse(os.Args[2:]))
+			drawframe.RunDrawFrame(df)
+			exit.Success()
+		case "rawdata":
+			rd := rawdata.GetFlags()
+			exit.OnError(rd.Parse(os.Args[2:]))
+			rawdata.RunPrintData(rd)
+			exit.Success()
+		case "ping":
+			p := ping.GetFlags()
+			exit.OnError(p.Parse(os.Args[2:]))
+			ping.RunPing(p)
+			exit.Success()
+		default:
+			// fallthrough
+		}
+	}
+	a := acciping.GetFlags()
+	exit.OnError(a.Parse(os.Args))
+	acciping.RunAcciPing(a)
+	exit.Success()
 }
-
-const demoFilePath = "dev.pings"
-const demoURL = "www.google.com"
-const pingsPerMinute = 60.0
-const channelSize = 10

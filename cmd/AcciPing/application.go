@@ -25,6 +25,7 @@ import (
 	"github.com/Lexer747/AcciPing/ping"
 	"github.com/Lexer747/AcciPing/utils/check"
 	"github.com/Lexer747/AcciPing/utils/errors"
+	"github.com/Lexer747/AcciPing/utils/exit"
 	"github.com/Lexer747/AcciPing/utils/siphon"
 	"golang.org/x/exp/maps"
 )
@@ -52,10 +53,10 @@ func (app *Application) Run(
 	// The ping channel which is already running needs to be duplicated, providing one to the Graph and second
 	// to a file writer. This de-couples the processes, we don't want the GUI to affect storing data and vice
 	// versa.
-	graphChannel, fileChannel := siphon.TeeBufferedChannel(ctx, channel, app.config.PingBufferingLimit)
+	graphChannel, fileChannel := siphon.TeeBufferedChannel(ctx, channel, *app.config.pingBufferingLimit)
 	fileData, err := duplicateData(app.toUpdate)
 	// TODO support no file operation
-	exitOnError(err)
+	exit.OnError(err)
 
 	app.drawBuffer = draw.NewPaintBuffer()
 
@@ -63,10 +64,10 @@ func (app *Application) Run(
 	app.addFallbackListener(helpAction(helpCh))
 
 	// The graph will take ownership of the data channel and data pointer.
-	app.g = graph.NewGraphWithData(ctx, graphChannel, app.term, app.GUI, app.config.PingsPerMinute, existingData, app.drawBuffer)
+	app.g = graph.NewGraphWithData(ctx, graphChannel, app.term, app.GUI, *app.config.pingsPerMinute, existingData, app.drawBuffer)
 	_ = app.g.Term.ClearScreen(terminal.UpdateAndMove)
 
-	if app.config.TestErrorListener {
+	if *app.config.testErrorListener {
 		app.makeErrorGenerator()
 	}
 
@@ -99,7 +100,7 @@ func (app *Application) Run(
 		app.help(ctx, helpCh, terminalSizeUpdates)
 	}()
 	defer termRecover()
-	exitOnError(err)
+	exit.OnError(err)
 	return graph()
 }
 
@@ -110,21 +111,21 @@ func (app *Application) Init(ctx context.Context, c Config) (channel chan ping.P
 	p := ping.NewPing()
 	var err error
 	app.term, err = terminal.NewTerminal()
-	exitOnError(err) // If we can't open the terminal for any reason we reasonably can't do anything this program offers.
+	exit.OnError(err) // If we can't open the terminal for any reason we reasonably can't do anything this program offers.
 
-	existingData, app.toUpdate = loadFile(c.FilePath, c.URL)
+	existingData, app.toUpdate = loadFile(*c.filePath, *c.url)
 
-	channel, err = p.CreateChannel(ctx, existingData.URL, c.PingsPerMinute, c.PingBufferingLimit)
+	channel, err = p.CreateChannel(ctx, existingData.URL, *c.pingsPerMinute, *c.pingBufferingLimit)
 	// If Creating the channel has an error this means we cannot continue, the network errors are already
 	// wrapped and retried by this channel, other errors imply some larger problem
-	exitOnError(err)
+	exit.OnError(err)
 	return
 }
 
 func (app *Application) Finish() {
 	_ = app.term.ClearScreen(terminal.UpdateSize)
 	app.term.Print(app.g.LastFrame())
-	app.term.Print("\n\n# Summary\nPing Successfully recorded in file '" + app.config.FilePath + "'\n\t" +
+	app.term.Print("\n\n# Summary\nPing Successfully recorded in file '" + *app.config.filePath + "'\n\t" +
 		app.g.Summarise() + "\n")
 }
 
@@ -228,6 +229,6 @@ func startCPUProfiling(cpuprofile string) func() {
 func loadFile(file, url string) (*data.Data, *os.File) {
 	// TODO this currently panics if the url's don't match we should do better
 	d, f, err := files.LoadOrCreateFile(file, url)
-	exitOnError(err)
+	exit.OnError(err)
 	return d, f
 }

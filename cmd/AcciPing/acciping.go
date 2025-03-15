@@ -8,7 +8,7 @@ package acciping
 
 import (
 	"context"
-	"fmt"
+	"flag"
 	"io"
 	"log/slog"
 	"os"
@@ -16,42 +16,54 @@ import (
 	"github.com/Lexer747/AcciPing/graph/terminal"
 	"github.com/Lexer747/AcciPing/utils/check"
 	"github.com/Lexer747/AcciPing/utils/errors"
+	"github.com/Lexer747/AcciPing/utils/exit"
 )
 
 type Config struct {
-	Cpuprofile         string
-	FilePath           string
-	LogFile            string
-	Memprofile         string
-	PingBufferingLimit int
-	PingsPerMinute     float64
-	URL                string
+	cpuprofile         *string
+	filePath           *string
+	logFile            *string
+	memprofile         *string
+	pingBufferingLimit *int
+	pingsPerMinute     *float64
+	url                *string
+	testErrorListener  *bool
 
-	TestErrorListener bool
+	*flag.FlagSet
 }
 
-// exitOnError should be called when there is no way from the program to continue functioning normally
-func exitOnError(err error) {
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
-		os.Exit(1)
+func GetFlags() *Config {
+	f := flag.NewFlagSet("", flag.ContinueOnError)
+	ret := &Config{
+		cpuprofile:         f.String("cpuprofile", "", "write cpu profile to `file`"),
+		filePath:           f.String("file", "dev.pings", "the file to write the pings into"),
+		logFile:            f.String("l", "", "write logs to `file`"),
+		memprofile:         f.String("memprofile", "", "write memory profile to `file`"),
+		pingBufferingLimit: new(int),
+		pingsPerMinute: f.Float64("pings-per-minute", 60.0,
+			"sets the speed at which the program will try to get new ping results, default is 60 ppm, 0 represents no limit"),
+		url:               f.String("url", "www.google.com", "the url to target for ping testing"),
+		testErrorListener: f.Bool("debug-error-creator", false, "binds the [e] key to create errors for GUI verification"),
+		FlagSet:           f,
 	}
+	*ret.pingBufferingLimit = 10
+	return ret
 }
 
-func RunAcciPing(c Config) {
-	closeCPUProfile := startCPUProfiling(c.Cpuprofile)
+func RunAcciPing(c *Config) {
+	closeCPUProfile := startCPUProfiling(*c.cpuprofile)
 	defer closeCPUProfile()
-	defer concludeMemProfile(c.Memprofile)
-	closeLogFile := initLogging(c.LogFile)
+	defer concludeMemProfile(*c.memprofile)
+	closeLogFile := initLogging(*c.logFile)
 	defer closeLogFile()
 
 	app := Application{}
 	ctx, cancelFunc := context.WithCancelCause(context.Background())
 	defer cancelFunc(nil)
-	ch, d := app.Init(ctx, c)
+	ch, d := app.Init(ctx, *c)
 	err := app.Run(ctx, cancelFunc, ch, d)
 	if err != nil && !errors.Is(err, terminal.UserCancelled) {
-		exitOnError(err)
+		exit.OnError(err)
 	} else {
 		app.Finish()
 	}
