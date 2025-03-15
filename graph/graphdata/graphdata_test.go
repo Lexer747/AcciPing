@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Lexer747/AcciPing/graph/data"
-	"github.com/Lexer747/AcciPing/graph/graphdata"
-	"github.com/Lexer747/AcciPing/graph/th"
-	"github.com/Lexer747/AcciPing/ping"
-	"github.com/Lexer747/AcciPing/utils/sliceutils"
-	utils_th "github.com/Lexer747/AcciPing/utils/th"
+	"github.com/Lexer747/acci-ping/graph/data"
+	"github.com/Lexer747/acci-ping/graph/graphdata"
+	"github.com/Lexer747/acci-ping/graph/th"
+	"github.com/Lexer747/acci-ping/ping"
+	"github.com/Lexer747/acci-ping/utils/sliceutils"
+	utils_th "github.com/Lexer747/acci-ping/utils/th"
 	"gotest.tools/v3/assert"
 	is "gotest.tools/v3/assert/cmp"
 )

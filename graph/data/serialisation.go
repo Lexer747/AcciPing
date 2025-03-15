@@ -10,8 +10,8 @@ import (
 	"io"
 	"net"
 
-	"github.com/Lexer747/AcciPing/ping"
-	"github.com/Lexer747/AcciPing/utils/errors"
+	"github.com/Lexer747/acci-ping/ping"
+	"github.com/Lexer747/acci-ping/utils/errors"
 )
 
 type Identifier byte

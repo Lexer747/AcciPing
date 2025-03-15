@@ -12,8 +12,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/Lexer747/AcciPing/ping"
-	"github.com/Lexer747/AcciPing/utils/errors"
+	"github.com/Lexer747/acci-ping/ping"
+	"github.com/Lexer747/acci-ping/utils/errors"
 )
 
 // sliceLenCompact works out the dynamic size for all items in a slice.s

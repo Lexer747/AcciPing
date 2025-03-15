@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Lexer747/AcciPing/utils/numeric"
-	"github.com/Lexer747/AcciPing/utils/th"
+	"github.com/Lexer747/acci-ping/utils/numeric"
+	"github.com/Lexer747/acci-ping/utils/th"
 )
 
 func TestNormalize(t *testing.T) {

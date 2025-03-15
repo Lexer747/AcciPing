@@ -13,4 +13,4 @@ go test -count=1 -race ./...
 if [[ "$1" == "update" ]]; then
     find . -name '*frame.actual' -exec bash -c 'mv -f $0 ${0/frame.actual/frame}; echo "updating $0"' {} \;
 fi
-go run ./cmd/drawframe/ ./bugfixes ./graph/data/testdata/input/ 1> /dev/null
+go run -race ./acci-ping.go drawframe -term-size 20x50 ./bugfixes ./graph/data/testdata/input/ 1> /dev/null

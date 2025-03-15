@@ -10,7 +10,7 @@ import (
 	"bytes"
 	"strconv"
 
-	"github.com/Lexer747/AcciPing/graph/terminal"
+	"github.com/Lexer747/acci-ping/graph/terminal"
 )
 
 type GUI interface {

@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Lexer747/AcciPing/ping"
-	"github.com/Lexer747/AcciPing/utils/env"
+	"github.com/Lexer747/acci-ping/ping"
+	"github.com/Lexer747/acci-ping/utils/env"
 	"gotest.tools/v3/assert"
 	is "gotest.tools/v3/assert/cmp"
 )

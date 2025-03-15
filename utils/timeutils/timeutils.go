@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Lexer747/AcciPing/utils/numeric"
+	"github.com/Lexer747/acci-ping/utils/numeric"
 )
 
 // HumanString truncates a duration to a given number of sig figs then prints it as a human readable duration.

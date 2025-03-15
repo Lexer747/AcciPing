@@ -11,9 +11,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Lexer747/AcciPing/graph/terminal"
-	"github.com/Lexer747/AcciPing/graph/terminal/ansi"
-	"github.com/Lexer747/AcciPing/utils/check"
+	"github.com/Lexer747/acci-ping/graph/terminal"
+	"github.com/Lexer747/acci-ping/graph/terminal/ansi"
+	"github.com/Lexer747/acci-ping/utils/check"
 )
 
 func makeBuffer(size terminal.Size) []string {

@@ -16,10 +16,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Lexer747/AcciPing/graph/terminal/ansi"
-	"github.com/Lexer747/AcciPing/utils"
-	"github.com/Lexer747/AcciPing/utils/bytes"
-	"github.com/Lexer747/AcciPing/utils/errors"
+	"github.com/Lexer747/acci-ping/graph/terminal/ansi"
+	"github.com/Lexer747/acci-ping/utils"
+	"github.com/Lexer747/acci-ping/utils/bytes"
+	"github.com/Lexer747/acci-ping/utils/errors"
 
 	"golang.org/x/term"
 )
@@ -65,6 +65,7 @@ type Terminal struct {
 }
 
 func NewTerminal() (*Terminal, error) {
+	// TODO check both stdout and stderr for a terminal size
 	if !term.IsTerminal(int(os.Stdout.Fd())) {
 		return nil, errors.Errorf("Not an expected terminal environment cannot get terminal size")
 	}
@@ -197,20 +198,20 @@ func (t *Terminal) StartRaw(
 type ClearBehaviour int
 
 const (
-	UpdateSize    ClearBehaviour = 1
-	MoveHome      ClearBehaviour = 2
-	UpdateAndMove ClearBehaviour = 3
+	UpdateSize            ClearBehaviour = 1
+	MoveHome              ClearBehaviour = 2
+	UpdateSizeAndMoveHome ClearBehaviour = 3
 )
 
 func (t *Terminal) ClearScreen(behaviour ClearBehaviour) error {
-	if behaviour == UpdateSize || behaviour == UpdateAndMove {
+	if behaviour == UpdateSize || behaviour == UpdateSizeAndMoveHome {
 		if err := t.UpdateCurrentTerminalSize(); err != nil {
 			return errors.Wrap(err, "while ClearScreen")
 		}
 	}
 	t.Print(strings.Repeat("\n", t.size.Height))
 	err := t.Print(ansi.Clear)
-	if behaviour == MoveHome || behaviour == UpdateAndMove {
+	if behaviour == MoveHome || behaviour == UpdateSizeAndMoveHome {
 		err = errors.Join(err, t.Print(ansi.Home))
 	}
 	return errors.Wrap(err, "while ClearScreen")

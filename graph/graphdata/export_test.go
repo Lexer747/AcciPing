@@ -6,7 +6,7 @@
 
 package graphdata
 
-import "github.com/Lexer747/AcciPing/ping"
+import "github.com/Lexer747/acci-ping/ping"
 
 func Add(si *SpanInfo, p ping.PingDataPoint, index int64) {
 	if si.Count == 0 {

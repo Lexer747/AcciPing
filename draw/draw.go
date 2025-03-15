@@ -10,7 +10,7 @@ import (
 	"bytes"
 	"sync/atomic"
 
-	"github.com/Lexer747/AcciPing/utils/sliceutils"
+	"github.com/Lexer747/acci-ping/utils/sliceutils"
 )
 
 // Buffer is a helper type for the graph drawing code, instead of writing everything as literal go strings
