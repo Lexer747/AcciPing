@@ -39,7 +39,7 @@ func main() {
 		}
 	}
 	a := acciping.GetFlags()
-	exit.OnError(a.Parse(os.Args))
+	exit.OnError(a.Parse(os.Args[1:]))
 	acciping.RunAcciPing(a)
 	exit.Success()
 }

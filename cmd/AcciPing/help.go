@@ -17,9 +17,14 @@ import (
 )
 
 // help which should only be called once the paint buffer is initialised.
-func (app *Application) help(ctx context.Context, helpChannel chan rune, terminalSizeUpdates chan terminal.Size) {
+func (app *Application) help(
+	ctx context.Context,
+	startShowHelp bool,
+	helpChannel chan rune,
+	terminalSizeUpdates chan terminal.Size,
+) {
 	helpBuffer := app.drawBuffer.Get(draw.HelpIndex)
-	h := help{showHelp: true}
+	h := help{showHelp: startShowHelp}
 	app.GUI.paint(h.render(app.term.Size(), helpBuffer))
 	for {
 		select {

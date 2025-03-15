@@ -22,6 +22,7 @@ import (
 	"github.com/Lexer747/AcciPing/graph/data"
 	"github.com/Lexer747/AcciPing/graph/terminal"
 	"github.com/Lexer747/AcciPing/gui"
+	"github.com/Lexer747/AcciPing/utils/check"
 	"github.com/Lexer747/AcciPing/utils/exit"
 )
 
@@ -53,6 +54,7 @@ func GetFlags() *Config {
 }
 
 func RunDrawFrame(c *Config) {
+	check.Check(c.Parsed(), "flags not parsed")
 	closeProfile := startCPUProfiling(*c.cpuprofile)
 	defer closeProfile()
 	defer concludeMemProfile(*c.memprofile)

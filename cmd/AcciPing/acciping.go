@@ -14,6 +14,7 @@ import (
 	"os"
 
 	"github.com/Lexer747/AcciPing/graph/terminal"
+	"github.com/Lexer747/AcciPing/graph/terminal/ansi"
 	"github.com/Lexer747/AcciPing/utils/check"
 	"github.com/Lexer747/AcciPing/utils/errors"
 	"github.com/Lexer747/AcciPing/utils/exit"
@@ -22,12 +23,13 @@ import (
 type Config struct {
 	cpuprofile         *string
 	filePath           *string
+	hideHelpOnStart    *bool
 	logFile            *string
 	memprofile         *string
 	pingBufferingLimit *int
 	pingsPerMinute     *float64
-	url                *string
 	testErrorListener  *bool
+	url                *string
 
 	*flag.FlagSet
 }
@@ -37,20 +39,24 @@ func GetFlags() *Config {
 	ret := &Config{
 		cpuprofile:         f.String("cpuprofile", "", "write cpu profile to `file`"),
 		filePath:           f.String("file", "dev.pings", "the file to write the pings into"),
+		hideHelpOnStart:    f.Bool("hide-help", false, "if this flag is used the help box will be hidden by default"),
 		logFile:            f.String("l", "", "write logs to `file`"),
 		memprofile:         f.String("memprofile", "", "write memory profile to `file`"),
 		pingBufferingLimit: new(int),
 		pingsPerMinute: f.Float64("pings-per-minute", 60.0,
-			"sets the speed at which the program will try to get new ping results, default is 60 ppm, 0 represents no limit"),
-		url:               f.String("url", "www.google.com", "the url to target for ping testing"),
-		testErrorListener: f.Bool("debug-error-creator", false, "binds the [e] key to create errors for GUI verification"),
-		FlagSet:           f,
+			"sets the speed at which the program will try to get new ping results, default is 60 ppm, 0 represents no limit."+
+				" Negative values are an error."),
+		testErrorListener: f.Bool("debug-error-creator", false,
+			"binds the ["+ansi.Yellow("e")+"] key to create errors for GUI verification"),
+		url:     f.String("url", "www.google.com", "the url to target for ping testing"),
+		FlagSet: f,
 	}
 	*ret.pingBufferingLimit = 10
 	return ret
 }
 
 func RunAcciPing(c *Config) {
+	check.Check(c.Parsed(), "flags not parsed")
 	closeCPUProfile := startCPUProfiling(*c.cpuprofile)
 	defer closeCPUProfile()
 	defer concludeMemProfile(*c.memprofile)

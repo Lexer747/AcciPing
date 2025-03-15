@@ -19,6 +19,7 @@ __debug_bin**
 ## Ignore AcciPing dev files:
 dev.pings
 *.log
+*.logs
 
 ## Ignore Build Files:
 out/

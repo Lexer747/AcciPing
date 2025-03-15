@@ -88,12 +88,12 @@ func (ts toastStore) insertToast(toShow error) int {
 // render should only be called while the lock is held
 func (ts toastStore) render(size terminal.Size, b *bytes.Buffer) paintUpdate {
 	ret := None
-	shouldInvalidate := b.Len() != 0
-	if shouldInvalidate {
-		ret = ret | Invalidate
-	}
+	hasData := b.Len() != 0
 	b.Reset()
 	if len(ts.toasts) == 0 {
+		if hasData {
+			ret = ret | Invalidate
+		}
 		return ret
 	}
 	toasts := ts.orderToasts()

@@ -37,7 +37,7 @@ type paintUpdate int
 const (
 	None       paintUpdate = 0b000000000000000
 	Paint      paintUpdate = 0b000000000000001
-	Invalidate paintUpdate = 0b000000000000010
+	Invalidate paintUpdate = 0b000000000000010 // TODO invalidate invalidates all components but should only per remove GUI element
 )
 
 func (p paintUpdate) String() string {

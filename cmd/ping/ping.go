@@ -12,6 +12,7 @@ import (
 	"fmt"
 
 	"github.com/Lexer747/AcciPing/ping"
+	"github.com/Lexer747/AcciPing/utils/check"
 )
 
 type Config struct {
@@ -31,6 +32,7 @@ func GetFlags() *Config {
 
 // A very basic demo and use of the library, pings google.com 4 times.
 func RunPing(c *Config) {
+	check.Check(c.Parsed(), "flags not parsed")
 	p := ping.NewPing()
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	channel, err := p.CreateChannel(ctx, *c.url, 45, 0)

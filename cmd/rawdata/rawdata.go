@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Lexer747/AcciPing/graph/data"
+	"github.com/Lexer747/AcciPing/utils/check"
 )
 
 type Config struct {
@@ -33,7 +34,7 @@ func GetFlags() *Config {
 	f.Usage = func() {
 		w := flag.CommandLine.Output()
 		fmt.Fprintf(w, "Usage of %s: reads '.pings' files and outputs the raw data to the stdout\n"+
-			"\t data [-a][-csv] FILES\n\n"+
+			"\t data [-all][-csv] FILES\n\n"+
 			"e.g. %s my_ping_capture.ping\n", os.Args[0], os.Args[0])
 		flag.PrintDefaults()
 	}
@@ -41,6 +42,7 @@ func GetFlags() *Config {
 }
 
 func RunPrintData(c *Config) {
+	check.Check(c.Parsed(), "flags not parsed")
 	flag.Parse()
 	toPrint := c.Args()
 	if len(toPrint) == 0 {

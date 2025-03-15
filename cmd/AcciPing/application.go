@@ -22,6 +22,8 @@ import (
 	"github.com/Lexer747/AcciPing/graph"
 	"github.com/Lexer747/AcciPing/graph/data"
 	"github.com/Lexer747/AcciPing/graph/terminal"
+	"github.com/Lexer747/AcciPing/graph/terminal/ansi"
+	"github.com/Lexer747/AcciPing/gui"
 	"github.com/Lexer747/AcciPing/ping"
 	"github.com/Lexer747/AcciPing/utils/check"
 	"github.com/Lexer747/AcciPing/utils/errors"
@@ -65,7 +67,7 @@ func (app *Application) Run(
 
 	// The graph will take ownership of the data channel and data pointer.
 	app.g = graph.NewGraphWithData(ctx, graphChannel, app.term, app.GUI, *app.config.pingsPerMinute, existingData, app.drawBuffer)
-	_ = app.g.Term.ClearScreen(terminal.UpdateAndMove)
+	_ = app.g.Term.ClearScreen(terminal.UpdateSizeAndMoveHome)
 
 	if *app.config.testErrorListener {
 		app.makeErrorGenerator()
@@ -97,7 +99,7 @@ func (app *Application) Run(
 	}()
 	go func() {
 		defer termRecover()
-		app.help(ctx, helpCh, terminalSizeUpdates)
+		app.help(ctx, !*app.config.hideHelpOnStart, helpCh, terminalSizeUpdates)
 	}()
 	defer termRecover()
 	exit.OnError(err)
@@ -163,6 +165,9 @@ func (app *Application) makeErrorGenerator() {
 		go func() { app.errorChannel <- errors.New("Test Error") }()
 		return nil
 	})
+	helpCopy = append(helpCopy,
+		gui.Typography{ToPrint: "Press " + ansi.Green("e") + " to generate a test error.", TextLen: 6 + 1 + 26, Alignment: gui.Left},
+	)
 }
 
 func (app *Application) addListener(r rune, Action func(rune) error) {
