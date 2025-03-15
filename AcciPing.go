@@ -9,10 +9,10 @@ package main
 import (
 	"os"
 
-	acciping "github.com/Lexer747/AcciPing/cmd/AcciPing"
-	"github.com/Lexer747/AcciPing/cmd/drawframe"
-	"github.com/Lexer747/AcciPing/cmd/ping"
-	"github.com/Lexer747/AcciPing/cmd/rawdata"
+	acciping "github.com/Lexer747/AcciPing/cmd/subcommands/AcciPing"
+	"github.com/Lexer747/AcciPing/cmd/subcommands/drawframe"
+	"github.com/Lexer747/AcciPing/cmd/subcommands/ping"
+	"github.com/Lexer747/AcciPing/cmd/subcommands/rawdata"
 	"github.com/Lexer747/AcciPing/utils/exit"
 )
 

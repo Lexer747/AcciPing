@@ -52,13 +52,20 @@ func (app *Application) Run(
 	channel chan ping.PingResults,
 	existingData *data.Data,
 ) error {
-	// The ping channel which is already running needs to be duplicated, providing one to the Graph and second
-	// to a file writer. This de-couples the processes, we don't want the GUI to affect storing data and vice
-	// versa.
-	graphChannel, fileChannel := siphon.TeeBufferedChannel(ctx, channel, *app.config.pingBufferingLimit)
-	fileData, err := duplicateData(app.toUpdate)
-	// TODO support no file operation
-	exit.OnError(err)
+	var fileData *data.Data
+	var graphChannel, fileChannel chan ping.PingResults
+	if app.toUpdate != nil {
+		// The ping channel which is already running needs to be duplicated, providing one to the Graph and second
+		// to a file writer. This de-couples the processes, we don't want the GUI to affect storing data and vice
+		// versa.
+		graphChannel, fileChannel = siphon.TeeBufferedChannel(ctx, channel, *app.config.pingBufferingLimit)
+		var err error
+		fileData, err = duplicateData(app.toUpdate)
+		exit.OnError(err)
+	} else {
+		// We don't need to duplicate the channel since we are not writing anything to a file
+		graphChannel = channel
+	}
 
 	app.drawBuffer = draw.NewPaintBuffer()
 
@@ -89,10 +96,12 @@ func (app *Application) Run(
 	// https://go.dev/blog/defer-panic-and-recover
 	//
 	// Each go routine needs to handle a panic in the same way.
-	go func() {
-		defer termRecover()
-		app.writeToFile(ctx, fileData, fileChannel)
-	}()
+	if fileData != nil {
+		go func() {
+			defer termRecover()
+			app.writeToFile(ctx, fileData, fileChannel)
+		}()
+	}
 	go func() {
 		defer termRecover()
 		app.toastNotifications(ctx, terminalSizeUpdates)
@@ -115,7 +124,11 @@ func (app *Application) Init(ctx context.Context, c Config) (channel chan ping.P
 	app.term, err = terminal.NewTerminal()
 	exit.OnError(err) // If we can't open the terminal for any reason we reasonably can't do anything this program offers.
 
-	existingData, app.toUpdate = loadFile(*c.filePath, *c.url)
+	if *c.filePath != "" {
+		existingData, app.toUpdate = loadFile(*c.filePath, *c.url)
+	} else {
+		existingData = data.NewData(*c.url)
+	}
 
 	channel, err = p.CreateChannel(ctx, existingData.URL, *c.pingsPerMinute, *c.pingBufferingLimit)
 	// If Creating the channel has an error this means we cannot continue, the network errors are already
@@ -127,8 +140,13 @@ func (app *Application) Init(ctx context.Context, c Config) (channel chan ping.P
 func (app *Application) Finish() {
 	_ = app.term.ClearScreen(terminal.UpdateSize)
 	app.term.Print(app.g.LastFrame())
-	app.term.Print("\n\n# Summary\nPing Successfully recorded in file '" + *app.config.filePath + "'\n\t" +
-		app.g.Summarise() + "\n")
+	if *app.config.filePath != "" {
+		app.term.Print("\n\n# Summary\nData Successfully recorded in file '" + *app.config.filePath + "'\n\t" +
+			app.g.Summarise() + "\n")
+	} else {
+		app.term.Print("\n\n# Summary\nData not saved, use `-file [FILE_NAME]` to save recordings in future.\n\t" +
+			app.g.Summarise() + "\n")
+	}
 }
 
 func (app *Application) writeToFile(ctx context.Context, ourData *data.Data, input chan ping.PingResults) {

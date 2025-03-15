@@ -38,7 +38,7 @@ func GetFlags() *Config {
 	f := flag.NewFlagSet("", flag.ContinueOnError)
 	ret := &Config{
 		cpuprofile:         f.String("cpuprofile", "", "write cpu profile to `file`"),
-		filePath:           f.String("file", "dev.pings", "the file to write the pings into"),
+		filePath:           f.String("file", "", "the file to write the pings into"),
 		hideHelpOnStart:    f.Bool("hide-help", false, "if this flag is used the help box will be hidden by default"),
 		logFile:            f.String("l", "", "write logs to `file`"),
 		memprofile:         f.String("memprofile", "", "write memory profile to `file`"),
