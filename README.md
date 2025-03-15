@@ -2,7 +2,7 @@
 
 `acci-ping` is an in terminal ping CLI utility.
 
-<video src='./images/thumbnail.mp4' width=180></video>
+[![thumbnail-gif](./images/thumbnail-converted.gif)]()
 
 ## Documentation
 
