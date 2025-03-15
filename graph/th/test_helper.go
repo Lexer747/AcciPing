@@ -10,7 +10,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/Lexer747/AcciPing/graph/data"
+	"github.com/Lexer747/acci-ping/graph/data"
 	"gotest.tools/v3/assert"
 )
 

@@ -40,3 +40,7 @@ func OnErrorMsgf(err error, format string, args ...any) {
 func Success() {
 	os.Exit(0)
 }
+
+func Silent() {
+	os.Exit(1)
+}

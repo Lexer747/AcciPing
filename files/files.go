@@ -10,9 +10,9 @@ import (
 	"io"
 	"os"
 
-	"github.com/Lexer747/AcciPing/graph/data"
-	"github.com/Lexer747/AcciPing/utils/check"
-	"github.com/Lexer747/AcciPing/utils/errors"
+	"github.com/Lexer747/acci-ping/graph/data"
+	"github.com/Lexer747/acci-ping/utils/check"
+	"github.com/Lexer747/acci-ping/utils/errors"
 )
 
 // LoadFile will read a '.pings' file returning the data and the file handle (opened in read/write), or any

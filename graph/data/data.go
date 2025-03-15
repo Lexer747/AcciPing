@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Lexer747/AcciPing/ping"
-	"github.com/Lexer747/AcciPing/utils/numeric"
-	"github.com/Lexer747/AcciPing/utils/sliceutils"
+	"github.com/Lexer747/acci-ping/ping"
+	"github.com/Lexer747/acci-ping/utils/numeric"
+	"github.com/Lexer747/acci-ping/utils/sliceutils"
 )
 
 type Data struct {

@@ -10,10 +10,10 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/Lexer747/AcciPing/graph/data"
-	"github.com/Lexer747/AcciPing/graph/terminal/ansi"
-	"github.com/Lexer747/AcciPing/graph/terminal/typography"
-	"github.com/Lexer747/AcciPing/ping"
+	"github.com/Lexer747/acci-ping/graph/data"
+	"github.com/Lexer747/acci-ping/graph/terminal/ansi"
+	"github.com/Lexer747/acci-ping/graph/terminal/typography"
+	"github.com/Lexer747/acci-ping/ping"
 )
 
 // drawWindow is an optimiser and beautifier for the actual points being drawn to a given frame. The

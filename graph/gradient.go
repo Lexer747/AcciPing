@@ -9,8 +9,8 @@ package graph
 import (
 	"fmt"
 
-	t "github.com/Lexer747/AcciPing/graph/terminal/typography"
-	"github.com/Lexer747/AcciPing/utils/check"
+	t "github.com/Lexer747/acci-ping/graph/terminal/typography"
+	"github.com/Lexer747/acci-ping/utils/check"
 )
 
 func solve(x []int, y []int) []string {

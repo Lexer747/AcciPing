@@ -9,8 +9,8 @@ package graph
 import (
 	"strings"
 
-	"github.com/Lexer747/AcciPing/ping"
-	"github.com/Lexer747/AcciPing/utils/check"
+	"github.com/Lexer747/acci-ping/ping"
+	"github.com/Lexer747/acci-ping/utils/check"
 )
 
 // This file contains various helper methods for unit tests but which are not safe public API methods.

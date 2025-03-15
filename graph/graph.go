@@ -14,13 +14,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Lexer747/AcciPing/draw"
-	"github.com/Lexer747/AcciPing/graph/data"
-	"github.com/Lexer747/AcciPing/graph/graphdata"
-	"github.com/Lexer747/AcciPing/graph/terminal"
-	"github.com/Lexer747/AcciPing/gui"
-	"github.com/Lexer747/AcciPing/ping"
-	"github.com/Lexer747/AcciPing/utils/check"
+	"github.com/Lexer747/acci-ping/draw"
+	"github.com/Lexer747/acci-ping/graph/data"
+	"github.com/Lexer747/acci-ping/graph/graphdata"
+	"github.com/Lexer747/acci-ping/graph/terminal"
+	"github.com/Lexer747/acci-ping/gui"
+	"github.com/Lexer747/acci-ping/ping"
+	"github.com/Lexer747/acci-ping/utils/check"
 )
 
 type Graph struct {

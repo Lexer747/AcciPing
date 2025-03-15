@@ -9,7 +9,7 @@ package timeutils_test
 import (
 	"testing"
 
-	"github.com/Lexer747/AcciPing/utils/timeutils"
+	"github.com/Lexer747/acci-ping/utils/timeutils"
 	"gotest.tools/v3/assert"
 	is "gotest.tools/v3/assert/cmp"
 )

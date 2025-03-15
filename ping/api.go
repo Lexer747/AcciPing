@@ -14,8 +14,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/Lexer747/AcciPing/utils/bytes"
-	"github.com/Lexer747/AcciPing/utils/errors"
+	"github.com/Lexer747/acci-ping/utils/bytes"
+	"github.com/Lexer747/acci-ping/utils/errors"
 
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv4"

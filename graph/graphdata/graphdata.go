@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Lexer747/AcciPing/graph/data"
-	"github.com/Lexer747/AcciPing/ping"
+	"github.com/Lexer747/acci-ping/graph/data"
+	"github.com/Lexer747/acci-ping/ping"
 )
 
 // NOTE: GraphData does not have a [data.FromCompact] implementation because it is meant to be less strict layer on-top

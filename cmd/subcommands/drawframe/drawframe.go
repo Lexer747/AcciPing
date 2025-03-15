@@ -16,14 +16,14 @@ import (
 	"runtime/pprof"
 	"time"
 
-	"github.com/Lexer747/AcciPing/draw"
-	"github.com/Lexer747/AcciPing/files"
-	"github.com/Lexer747/AcciPing/graph"
-	"github.com/Lexer747/AcciPing/graph/data"
-	"github.com/Lexer747/AcciPing/graph/terminal"
-	"github.com/Lexer747/AcciPing/gui"
-	"github.com/Lexer747/AcciPing/utils/check"
-	"github.com/Lexer747/AcciPing/utils/exit"
+	"github.com/Lexer747/acci-ping/draw"
+	"github.com/Lexer747/acci-ping/files"
+	"github.com/Lexer747/acci-ping/graph"
+	"github.com/Lexer747/acci-ping/graph/data"
+	"github.com/Lexer747/acci-ping/graph/terminal"
+	"github.com/Lexer747/acci-ping/gui"
+	"github.com/Lexer747/acci-ping/utils/check"
+	"github.com/Lexer747/acci-ping/utils/exit"
 )
 
 type Config struct {

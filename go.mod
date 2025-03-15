@@ -1,4 +1,4 @@
-module github.com/Lexer747/AcciPing
+module github.com/Lexer747/acci-ping
 
 go 1.23.0
 

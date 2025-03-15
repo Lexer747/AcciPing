@@ -11,9 +11,9 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/Lexer747/AcciPing/utils/check"
-	"github.com/Lexer747/AcciPing/utils/errors"
-	"github.com/Lexer747/AcciPing/utils/sliceutils"
+	"github.com/Lexer747/acci-ping/utils/check"
+	"github.com/Lexer747/acci-ping/utils/errors"
+	"github.com/Lexer747/acci-ping/utils/sliceutils"
 )
 
 // queryCache provides an interface for Ping to consume in which we respect the wishes of the servers we are

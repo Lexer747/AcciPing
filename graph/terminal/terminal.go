@@ -16,10 +16,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Lexer747/AcciPing/graph/terminal/ansi"
-	"github.com/Lexer747/AcciPing/utils"
-	"github.com/Lexer747/AcciPing/utils/bytes"
-	"github.com/Lexer747/AcciPing/utils/errors"
+	"github.com/Lexer747/acci-ping/graph/terminal/ansi"
+	"github.com/Lexer747/acci-ping/utils"
+	"github.com/Lexer747/acci-ping/utils/bytes"
+	"github.com/Lexer747/acci-ping/utils/errors"
 
 	"golang.org/x/term"
 )

@@ -12,9 +12,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/Lexer747/AcciPing/graph/data"
-	"github.com/Lexer747/AcciPing/utils/check"
-	"github.com/Lexer747/AcciPing/utils/exit"
+	"github.com/Lexer747/acci-ping/graph/data"
+	"github.com/Lexer747/acci-ping/utils/check"
+	"github.com/Lexer747/acci-ping/utils/exit"
 )
 
 type Config struct {
@@ -28,7 +28,7 @@ func GetFlags() *Config {
 	f := flag.NewFlagSet("", flag.ContinueOnError)
 	ret := &Config{
 		FlagSet:  f,
-		printAll: f.Bool("all", false, "prints all raw values otherwise only summarises '.pings' files"),
+		printAll: f.Bool("all", true, "prints all raw values otherwise only summarises '.pings' files"),
 		toCSV:    f.Bool("csv", false, "writes '.pings' files as '.csv'"),
 	}
 
