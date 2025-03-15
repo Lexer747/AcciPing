@@ -14,6 +14,7 @@ import (
 
 	"github.com/Lexer747/AcciPing/graph/data"
 	"github.com/Lexer747/AcciPing/utils/check"
+	"github.com/Lexer747/AcciPing/utils/exit"
 )
 
 type Config struct {
@@ -47,7 +48,7 @@ func RunPrintData(c *Config) {
 	toPrint := c.Args()
 	if len(toPrint) == 0 {
 		fmt.Fprintf(os.Stderr, "No files found, exiting. Use -h/--help to print usage instructions.\n")
-		os.Exit(0)
+		exit.Success()
 	}
 	for _, file := range toPrint {
 		f, err := os.OpenFile(file, os.O_RDONLY, 0)

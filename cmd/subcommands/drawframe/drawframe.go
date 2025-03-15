@@ -63,11 +63,11 @@ func RunDrawFrame(c *Config) {
 	toPrint := c.Args()
 	if len(toPrint) == 0 {
 		fmt.Fprint(os.Stderr, "No files found, exiting. Use -h/--help to print usage instructions.\n")
-		os.Exit(0)
+		exit.Success()
 	}
 
 	term, err := makeTerminal(c.termSize)
-	exit.OnErrorMsg("failed to open terminal to draw", err)
+	exit.OnErrorMsg(err, "failed to open terminal to draw")
 
 	for _, path := range toPrint {
 		run(term, path, profiling)
@@ -79,10 +79,7 @@ func RunDrawFrame(c *Config) {
 
 func run(term *terminal.Terminal, path string, profiling bool) {
 	fs, err := os.Stat(path)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Couldn't stat path %q, failed with: %s", path, err.Error())
-		os.Exit(1)
-	}
+	exit.OnErrorMsgf(err, "Couldn't stat path %q, failed with", path)
 	if fs.IsDir() {
 		err := filepath.WalkDir(path, func(p string, d os.DirEntry, err error) error {
 			if filepath.Ext(p) != ".pings" {
@@ -91,10 +88,7 @@ func run(term *terminal.Terminal, path string, profiling bool) {
 			do(p, term, profiling)
 			return nil
 		})
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Couldn't walk path %q, failed with: %s", path, err.Error())
-			os.Exit(1)
-		}
+		exit.OnErrorMsgf(err, "Couldn't walk path %q, failed with", path)
 	} else {
 		do(path, term, profiling)
 	}
@@ -102,10 +96,7 @@ func run(term *terminal.Terminal, path string, profiling bool) {
 
 func do(path string, term *terminal.Terminal, profiling bool) {
 	d, f, err := files.LoadFile(path)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Couldn't open and read file, failed with: %s", err.Error())
-		os.Exit(1)
-	}
+	exit.OnErrorMsg(err, "Couldn't open and read file, failed with")
 	f.Close()
 	if err != nil {
 		panic(err.Error())
